@@ -12,6 +12,7 @@
 #' @export
 #'
 cv_lpSolve <- function(d, ind, lambds, start = 10, c = 30){
+    print("I have been changed!")
     XX <- d[, 2:44]
     y <- d[, 45]
     N =  nrow(XX)
@@ -28,8 +29,7 @@ cv_lpSolve <- function(d, ind, lambds, start = 10, c = 30){
     obj_coefficients[(p+ind)] = 1
     lpSolveAPI::set.objfn(my.lp,obj_coefficients)
 
-    ## Constrain  first week sum of coefs of beta to be zero??
-    # Why?
+    ## Constrain day of week coefficients to sum to 0?
     constraint_coefficients <- rep(0,N_var)
     constraint_coefficients[1:7] = 1
     lpSolveAPI::add.constraint(my.lp, constraint_coefficients, type = "=", 0)
@@ -177,8 +177,10 @@ cv_lpSolve <- function(d, ind, lambds, start = 10, c = 30){
     for(i in 1:length(lambds)){
         constraint_coefficients <- rep(0,N_var)
 
-        ## What is this 9 below?
-        constraint_coefficients[(p+5*N+1+9):(p+5*N+1+p)] = 1
+        ## (KO) Originally +9, changed to +8 in order to bound coefficient on seven day 
+        ## moving average of platelet usage.
+        constraint_coefficients[(p+5*N+1+8):(p+5*N+1+p)] = 1 
+        
         ## This assumes that the lambda's are ordered, else results will be wrong!!!
         lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", lambds[i])
         ##assignInMyNamespace("lplist", c(lplist, list(my.lp)))
