@@ -1,6 +1,6 @@
 Package: pip
 Title: Platelet Inventory Prediction
-Version: 0.3-7
+Version: 0.3-8
 VignetteBuilder: knitr
 Authors@R: c(
         person(given = "Leying", family = "Guan",
@@ -21,8 +21,8 @@ Authors@R: c(
                     role = c("aut", "cre"), email = "naras@stat.stanford.edu"),
 	person(given = "Gomathi", family = "Krishnan",
                     role = c("ctb"), email = "gomathik@stanford.edu"))
-URL: https://github.com/bnaras/pip
-BugReports: https://github.com/bnaras/pip
+URL: https://github.com/okadak126/pip
+BugReports: https://github.com/okadak126/pip
 Description: Forecast inventory of platelet or any other item based on past history
     and projected usage. Facilities are provided for indicating forecast window and
     length of past history to use. A combination of time series analysis together with

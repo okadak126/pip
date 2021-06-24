@@ -99,6 +99,8 @@ build_model <- function(c0, ## the minimum number of units to keep on shelf (c)
     d <- data[seq.int(n - history_window + 1, n), ]
     data_column_names <- names(data)
     number_of_columns <- ncol(data)
+    print(number_of_columns)
+
     resp_var_index <- grep(response_column, data_column_names)
     date_var_index <- grep(date_column, data_column_names)
     if (length(resp_var_index) < 1 || length(date_var_index) < 1) {
@@ -126,7 +128,13 @@ build_model <- function(c0, ## the minimum number of units to keep on shelf (c)
     #the optimization always assume that we make prediction by the end of the day, say 23:59:59
     pb <- if (show_progress) utils::txtProgressBar(min = 0, max = nfolds, style = 3) else NULL
     for (k in seq_len(nfolds)) {
-        coeffs <- single_lpSolve(d, lamb = lambds, ind = which(foldid != k), start = start, c = c0)
+        coeffs <- single_lpSolve(d,
+                                 lamb = lambds,
+                                 num_vars = number_of_columns - 2,
+                                 ind = which(foldid != k),
+                                 start = start,
+                                 c = c0)
+
         pred1 <- xMat %*% coeffs
         for (l in seq_along(lambds)){
             rr <- compute_prediction_statistics(y,
@@ -151,7 +159,10 @@ build_model <- function(c0, ## the minimum number of units to keep on shelf (c)
         apply(r_cv, 2, function(x) sum(((pos(penalty_factor - x))^2) [-(seq_len(first_day_waste_seen))]) )
     cv_loss <- cv_loss + 2 * (length(cv_loss):1)
     index <- which.min(cv_loss)
-    coefs <- as.numeric(single_lpSolve(d, lamb = lambds[index], start = start, c = c0))
+    coefs <- as.numeric(single_lpSolve(d,
+                                       lamb = lambds[index],
+                                       num_vars = number_of_columns - 2,
+                                       start = start, c = c0))
     names(coefs) <- c("intercept", predictor_names)
     list(
         lambda = lambds[index],

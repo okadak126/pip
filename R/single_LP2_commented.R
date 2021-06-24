@@ -21,12 +21,12 @@
 #' @importFrom lpSolveAPI set.objfn get.variables
 #' @export
 #'
-single_lpSolve <- function(d, lamb, start = 10, c = 30, buffer = 10, ind = NULL) {
+single_lpSolve <- function(d, lamb, num_vars, start = 10, c = 30, buffer = 10, ind = NULL) {
     doing_cv <- !is.null(ind)
     ## ind, if specified, is sorted!!! We make use of that below
 
-    XX <- d[, 2:44]
-    y <- d[, 45]
+    XX <- d[, 2:(num_vars + 1)]
+    y <- d[, (num_vars + 2)]
 
     N <- nrow(XX)
     p <- ncol(XX)
