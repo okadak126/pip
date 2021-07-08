@@ -30,6 +30,10 @@ pos <- function(x) pmax(x, 0)
 
 ## Does cross validation
 
+#' Create folds for time series cross validation. Folds are continguous and sequential.
+#' @param n number of rows of a matrix/data_frame to which ids are assigned
+#' @param nfold number of folds
+#' @return a vector of integers assigning values in 1 - nfold to each row.
 create_folds <- function(n, nfold){
     foldid  <- integer(n)
     fold_len <- floor( (n + 0.1) / nfold )

@@ -4,12 +4,23 @@
 \alias{build_model}
 \title{Run a fit on a given dataset}
 \usage{
-build_model(c0, history_window, penalty_factor = 15, start = 10,
-  initial_expiry_data = c(0, 0), initial_collection_data = c(60, 60,
-  60), data, date_column = "day|date", response_column = "plt_used",
-  show_progress = TRUE)
+build_model(
+  data,
+  c0 = 15,
+  history_window = 200,
+  penalty_factor = 15,
+  start = 10,
+  initial_expiry_data = c(0, 0),
+  initial_collection_data = c(60, 60, 60),
+  min_lambda = 0,
+  date_column = "day|date",
+  response_column = "plt_used",
+  show_progress = TRUE
+)
 }
 \arguments{
+\item{data}{the dataset}
+
 \item{c0}{the c0 value}
 
 \item{history_window}{Number of days to look back}
@@ -24,7 +35,7 @@ and the day after, a 2-length vector}
 \item{initial_collection_data}{is the number of units that will be
 collected for the first three days when the prediction begins}
 
-\item{data}{the dataset}
+\item{min_lambda}{the smallest acceptable value of lambda (cap on coefficient magnitude)}
 
 \item{date_column}{the name of the date or day number column as a
 regex, default is "day|date" i.e. day or date}

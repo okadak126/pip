@@ -4,8 +4,13 @@
 \alias{compute_prediction_statistics}
 \title{Compute the prediction statistics}
 \usage{
-compute_prediction_statistics(y, t_pred, initial_expiry_data = c(0, 0),
-  initial_collection_data = c(60, 60, 60), start = 10)
+compute_prediction_statistics(
+  y,
+  t_pred,
+  initial_expiry_data = c(0, 0),
+  initial_collection_data = c(60, 60, 60),
+  start = 10
+)
 }
 \arguments{
 \item{y}{is the number of units used at the current day i}

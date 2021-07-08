@@ -4,8 +4,7 @@
 \alias{single_lpSolve}
 \title{Solve an LP problem}
 \usage{
-single_lpSolve(d, lamb, start = 10, c = 30, buffer = 10,
-  ind = NULL)
+single_lpSolve(d, lamb, num_vars, start = 10, c = 30, buffer = 10, ind = NULL)
 }
 \arguments{
 \item{d}{the data frame}

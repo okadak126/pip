@@ -12,7 +12,6 @@
 #' @export
 #'
 cv_lpSolve <- function(d, ind, lambds, start = 10, c = 30){
-    print("I have been changed!")
     XX <- d[, 2:44]
     y <- d[, 45]
     N =  nrow(XX)
@@ -177,10 +176,10 @@ cv_lpSolve <- function(d, ind, lambds, start = 10, c = 30){
     for(i in 1:length(lambds)){
         constraint_coefficients <- rep(0,N_var)
 
-        ## (KO) Originally +9, changed to +8 in order to bound coefficient on seven day 
+        ## (KO) Originally +9, changed to +8 in order to bound coefficient on seven day
         ## moving average of platelet usage.
-        constraint_coefficients[(p+5*N+1+8):(p+5*N+1+p)] = 1 
-        
+        constraint_coefficients[(p+5*N+1+8):(p+5*N+1+p)] = 1
+
         ## This assumes that the lambda's are ordered, else results will be wrong!!!
         lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", lambds[i])
         ##assignInMyNamespace("lplist", c(lplist, list(my.lp)))

@@ -4,7 +4,8 @@
 \name{day3_data}
 \alias{day3_data}
 \title{Day 3 data for use in prediction}
-\format{A data frame with 880 rows and 44 variables:
+\format{
+A data frame with 880 rows and 44 variables:
 \describe{
   \item{day}{The day number}
   \item{M,T,W,Th,F,S,Sn}{Day of the week}
@@ -45,7 +46,8 @@
   \item{H1}{}
   \item{H2}{}
   \item{plt.used}{the amount of platelet used}
-}}
+}
+}
 \usage{
 day3_data
 }
