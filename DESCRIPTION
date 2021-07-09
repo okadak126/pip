@@ -38,3 +38,14 @@ Suggests:
     shiny
 RoxygenNote: 7.1.1.9001
 Imports: lpSolveAPI
+Packaged: 2021-03-19 22:40:54 UTC; naras
+Author: Leying Guan [aut],
+  Robert J. Tibshirani [aut],
+  Saurabh Gombar [aut],
+  Xiaoying Tian [ctb],
+  Robert Scott [ctb],
+  Alison J. Zemek [ctb],
+  Tho Duc Pham [aut],
+  Balasubramanian Narasimhan [aut, cre],
+  Gomathi Krishnan [ctb]
+Maintainer: Balasubramanian Narasimhan <naras@stat.stanford.edu>

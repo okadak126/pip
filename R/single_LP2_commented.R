@@ -13,6 +13,7 @@
 #' Solve an LP problem
 #' @param d the data frame
 #' @param lamb the lambda value
+#' @param num_vars the number of features/covariates in the dataset.
 #' @param start the start date
 #' @param c the value for c_0
 #' @param buffer a value to be added to account for training in the initial stages, default 10
