@@ -53,14 +53,13 @@ compute_prediction_statistics <- function(y, #actual usage arranged according to
 #' response. This additional column, which is typically a date or day
 #' number, has to be named "date" or "day"
 #' @param data the dataset
+#' @param collection is the number of units that will be collected each day of training
+#' @param expiry the number of units expiring in an day and the day after (each day),
+#'     a list of 2 vectors
 #' @param c0 the c0 value
 #' @param history_window Number of days to look back
 #' @param penalty_factor penalty for shortage specified by doctors
 #' @param start the day the model is evaluated??. Default 10
-#' @param initial_expiry_data the number of units expiring in an day
-#'     and the day after, a 2-length vector
-#' @param initial_collection_data is the number of units that will be
-#'     collected for the first three days when the prediction begins
 #' @param min_lambda the smallest acceptable value of lambda (cap on coefficient magnitude)
 #' @param date_column the name of the date or day number column as a
 #'     regex, default is "day|date" i.e. day or date
@@ -81,12 +80,12 @@ compute_prediction_statistics <- function(y, #actual usage arranged according to
 #' @export
 #'
 build_model <- function(data, ## The data set
+                        expiry, ## The number of units expiring in 1 and 2 days (list of 2 vectors)
+                        collection, ## The order schedule during the training period
                         c0 = 15, ## the minimum number of units to keep on shelf (c)
                         history_window = 200, ## Number of days to look back
                         penalty_factor = 15, ## the penalty factor for shortage, specified by doctor
                         start = 10,   ## the day you start evaluating??
-                        initial_expiry_data = c(0, 0),
-                        initial_collection_data = c(60, 60, 60),
                         min_lambda = 0, # lowest allowed value of lambda
                         date_column = "day|date",  ## we assume column is named date or day by default
                         response_column = "plt_used",
@@ -146,12 +145,17 @@ build_model <- function(data, ## The data set
 
         pred1 <- xMat %*% coeffs
 
+        # Obtain true expiry and collection values for each fold
+        initial_expiry <- c(expiry$e1[foldid == k][1], expiry$e2[foldid == k][1])
+        initial_collection <- collection[foldid == k][1:3]
+
         # There are predictions for each lambda. Compute waste and remaining inventory for each prediction
         for (l in seq_along(lambds)){
+
             rr <- compute_prediction_statistics(y,
                                                 t_pred = pred1[, l],
-                                                initial_expiry_data = initial_expiry_data,
-                                                initial_collection_data = initial_collection_data, ## (KO changed) why was this in terms of y?? Why is it always the same?
+                                                initial_expiry_data = initial_expiry,
+                                                initial_collection_data = initial_collection,
                                                 start = start)
 
             ## The 30 above is the parameter passed, i.e. min number of units to keep on shelf.

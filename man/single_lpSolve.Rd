@@ -11,6 +11,8 @@ single_lpSolve(d, lamb, num_vars, start = 10, c = 30, buffer = 10, ind = NULL)
 
 \item{lamb}{the lambda value}
 
+\item{num_vars}{the number of features/covariates in the dataset.}
+
 \item{start}{the start date}
 
 \item{c}{the value for c_0}

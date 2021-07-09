@@ -6,12 +6,12 @@
 \usage{
 build_model(
   data,
+  expiry,
+  collection,
   c0 = 15,
   history_window = 200,
   penalty_factor = 15,
   start = 10,
-  initial_expiry_data = c(0, 0),
-  initial_collection_data = c(60, 60, 60),
   min_lambda = 0,
   date_column = "day|date",
   response_column = "plt_used",
@@ -21,6 +21,11 @@ build_model(
 \arguments{
 \item{data}{the dataset}
 
+\item{expiry}{the number of units expiring in an day and the day after (each day),
+a list of 2 vectors}
+
+\item{collection}{is the number of units that will be collected each day of training}
+
 \item{c0}{the c0 value}
 
 \item{history_window}{Number of days to look back}
@@ -28,12 +33,6 @@ build_model(
 \item{penalty_factor}{penalty for shortage specified by doctors}
 
 \item{start}{the day the model is evaluated??. Default 10}
-
-\item{initial_expiry_data}{the number of units expiring in an day
-and the day after, a 2-length vector}
-
-\item{initial_collection_data}{is the number of units that will be
-collected for the first three days when the prediction begins}
 
 \item{min_lambda}{the smallest acceptable value of lambda (cap on coefficient magnitude)}
 
