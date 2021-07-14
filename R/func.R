@@ -146,16 +146,18 @@ build_model <- function(data, ## The data set
         pred1 <- xMat %*% coeffs
 
         # Obtain true expiry and collection values for each fold
-        initial_expiry <- c(expiry$e1[foldid == k][1], expiry$e2[foldid == k][1])
-        initial_collection <- collection[foldid == k][1:3]
+        #initial_expiry <- c(expiry$e1[foldid == k][1], expiry$e2[foldid == k][1])
+        #initial_collection <- collection[foldid == k][1:3]
 
         # There are predictions for each lambda. Compute waste and remaining inventory for each prediction
         for (l in seq_along(lambds)){
 
             rr <- compute_prediction_statistics(y,
                                                 t_pred = pred1[, l],
-                                                initial_expiry_data = initial_expiry,
-                                                initial_collection_data = initial_collection,
+                                                #initial_expiry_data = initial_expiry,
+                                                #initial_collection_data = initial_collection,
+                                                initial_expiry_data = c(0, 0),
+                                                initial_collection_data = y[seq.int(start + 1L, start + 3L)],
                                                 start = start)
 
             ## The 30 above is the parameter passed, i.e. min number of units to keep on shelf.
