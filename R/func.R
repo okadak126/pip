@@ -114,7 +114,7 @@ build_model <- function(data, ## The data set
 
     # used as hyper parameter in cross validation - sets bounds for which coefficients
     # for features other than day of week and lag may not exceed. (KO - took this down by factor of 2)
-    lambds <- 100 - seq(0, 100 - min_lambda)
+    lambds <- 200 - 2 * seq(0, 100 - min_lambda)
 
     N <- history_window
     p <- length(predictor_names)
@@ -180,7 +180,7 @@ build_model <- function(data, ## The data set
         apply(r_cv, 2, function(x) sum(((pos(penalty_factor - x))^2) [-(seq_len(first_day_waste_seen))]) )
 
     # penalize larger values of lambda? This is kind of weird
-    cv_loss <- cv_loss + (length(cv_loss):1) # (KO) took down size of lambda and penalties by factor of 2
+    cv_loss <- cv_loss + 2 * (length(cv_loss):1)
 
     index <- which.min(cv_loss)
     coefs <- as.numeric(single_lpSolve(d,

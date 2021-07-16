@@ -34,7 +34,8 @@ single_lpSolve <- function(d, lamb, num_vars, start = 10, c = 30, buffer = 10, i
 
     if (!doing_cv) ind <- 1:N
 
-    pind <- p + ind
+    pind <- p + ind # indices of waste for CV fold (minimize sum of these in obj func)
+
     ## Remember y is usage, so y[i] is known usage on day i
     ## p betas, N ws, N r1s, N r2s, N xs, N ts, 1 intercept, p bounds
     N_var <- p + 5*N + 1 + p
@@ -42,11 +43,12 @@ single_lpSolve <- function(d, lamb, num_vars, start = 10, c = 30, buffer = 10, i
     my.lp <- lpSolveAPI::make.lp(0,N_var)
 
     obj_coefficients <- rep(0,N_var)
+
     ## Set coefs of w to be 1's (eq 9)
     obj_coefficients[pind] <- 1
     lpSolveAPI::set.objfn(my.lp,obj_coefficients)
 
-    ## Constrain first week sum of coefs of beta to be zero??  Why?
+    ## Constrain sum of day of week coefs of beta to be zero??  Why?
     ## Reply: There is non-identifiability issue with the day of week
     ## information. We can add the same value its all coefficients of
     ## these seven features, and shift the intercept correspondingly,
@@ -97,9 +99,9 @@ single_lpSolve <- function(d, lamb, num_vars, start = 10, c = 30, buffer = 10, i
 
     ## Setting r2 to zero for start day??  Reply: yes. The initial
     ## values for x_{start+1}, x_{start+2}, x_{start+3} have made sure
-    ## the feasibility of this problem. The model traininig part here
+    ## the feasibility of this problem. The model training part here
     ## does not involve any initial information we input as a
-    ## practioner, including remining bags, new bags will be arriving
+    ## practitioner, including remaining bags, new bags will be arriving
     ## for the next three days.
     constraint_coefficients <- rep(0,N_var)
     constraint_coefficients[start+p+N*2] <- 1 ## r_{start}(2)
@@ -167,7 +169,7 @@ single_lpSolve <- function(d, lamb, num_vars, start = 10, c = 30, buffer = 10, i
         lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", 0)
     }
 
-    ## Only for cross-validation
+    ## Only for cross-validation (Equation 17)
 ##    if (doing_cv) {  ## Fix per Lexi's email
     for (i in ind) {
         if(i >= start+4){
@@ -228,7 +230,14 @@ single_lpSolve <- function(d, lamb, num_vars, start = 10, c = 30, buffer = 10, i
         ## from the 9th predictor
         constraint_coefficients <- rep(0,N_var)
         constraint_coefficients[(p + 5*N + 1 + 9):(p + 5*N + 1 + p)] <- 1
+        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", 0) # KO added, just in case
         lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", lamb[i])
+
+        # [KO] Adding (looser) constraint to vars 1 - 8 (day of week and moving average)
+        constraint_coefficients <- rep(0,N_var)
+        constraint_coefficients[(p + 5*N + 1 + 1):(p + 5*N + 1 + 8)] <- 1
+        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", 0)
+        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", 40)
 
         ##print(my.lp)
         ##assignInMyNamespace("lplist", c(lplist, list(my.lp)))
