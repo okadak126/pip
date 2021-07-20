@@ -97,8 +97,7 @@ build_model <- function(data, ## The data set
     d <- data[seq.int(n - history_window + 1, n), ]
     data_column_names <- names(data)
     number_of_columns <- ncol(data)
-    print(number_of_columns - 2) # This is the number of features used
-    print(l1_bound_range)
+    print(paste0("Number of features:", number_of_columns - 2)) # This is the number of features used
 
     resp_var_index <- grep(response_column, data_column_names)
     date_var_index <- grep(date_column, data_column_names)
@@ -108,7 +107,7 @@ build_model <- function(data, ## The data set
     pred_var_indices <- setdiff(seq.int(2L, number_of_columns), c(resp_var_index, date_var_index))
     predictor_names <- data_column_names[pred_var_indices]
 
-    nfolds <- 8 # for cross validation
+    nfolds <- 8 # for cross validation (changed from 8)
 
     # used as hyper parameter in cross validation - sets bounds on L1 norm of coef vector
     l1_bounds <- seq(from = l1_bound_range[2], to = l1_bound_range[1], by = -2)
@@ -171,7 +170,7 @@ build_model <- function(data, ## The data set
     ## we see waste is start + 5
     first_day_waste_seen <- start + 5 ## 15 is this number
 
-    # The loss is given by the sume of the waste + the square of the positive difference
+    # The loss is given by the sum of the waste + the square of the positive difference
     # between the penalty factor (default = 15) and the remaining inventory
     cv_loss <- apply(w_cv, 2, function(x) sum( x[-(seq_len(first_day_waste_seen))])) +
         apply(r_cv, 2, function(x) sum(((pos(penalty_factor - x))^2) [-(seq_len(first_day_waste_seen))]) )

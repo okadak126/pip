@@ -46,4 +46,3 @@ create_folds <- function(n, nfold){
   }
   foldid
 }
-
