@@ -35,15 +35,15 @@ pos <- function(x) pmax(x, 0)
 #' @param nfold number of folds
 #' @return a vector of integers assigning values in 1 - nfold to each row.
 create_folds <- function(n, nfold){
-    foldid  <- integer(n)
-    fold_len <- floor( (n + 0.1) / nfold )
-    for(i in seq.int(0, nfold - 1L)){
-        if(i < nfold - 1L){
-            foldid[(i*fold_len):((i+1)*fold_len)] = i+1
-        }else{
-            foldid[(i*fold_len):n] = i+1
-        }
+  foldid  <- integer(n)
+  fold_len <- floor( (n + 0.1) / nfold )
+  for(i in seq.int(0, nfold - 1L)){
+    if(i < nfold - 1L){
+      foldid[(i*fold_len + 1):((i+1)*fold_len)] = i+1
+    }else{
+      foldid[(i*fold_len + 1):n] = i+1
     }
+  }
   foldid
 }
 
