@@ -12,7 +12,7 @@
 
 #' Solve an LP problem
 #' @param d the data frame
-#' @param lamb the lambda value
+#' @param l1_bounds the upper bound on the l1 norm of coefficient vector
 #' @param num_vars the number of features/covariates in the dataset.
 #' @param start the start date
 #' @param c the value for c_0
@@ -22,7 +22,7 @@
 #' @importFrom lpSolveAPI set.objfn get.variables
 #' @export
 #'
-single_lpSolve <- function(d, lamb, num_vars, start = 10, c = 30, buffer = 10, ind = NULL) {
+single_lpSolve <- function(d, l1_bounds, num_vars, start = 10, c = 30, buffer = 10, ind = NULL) {
     doing_cv <- !is.null(ind)
     ## ind, if specified, is sorted!!! We make use of that below
 
@@ -185,8 +185,7 @@ single_lpSolve <- function(d, lamb, num_vars, start = 10, c = 30, buffer = 10, i
         ##collecting
         ##x_{i+3} +  x_{i+2}+x_{i+1}  + r2_{i} + r1_{i} -t_i== 0:start+N
 
-        ## Eqn 18??  Error in transcribing equation 8 to 18.
-        ## Implements equation 8
+        ## Implements equation 8 (equation 18 in the slide deck is incorrect - should be 8)
         constraint_coefficients <- rep(0,N_var)
         constraint_coefficients[i+3*N+p] <- 1 ## x_{i}
         if (i %in% ind) {
@@ -205,13 +204,16 @@ single_lpSolve <- function(d, lamb, num_vars, start = 10, c = 30, buffer = 10, i
 
     ##write.lp(my.lp,'model.lp',type='lp')
     for (j in 1:p) {
-        ## penalty term constraints
+        ## constrain bounds (l1 constraints) KO added this
         constraint_coefficients <- rep(0,N_var)
-        constraint_coefficients[j] <- 1 ## beta_j
         constraint_coefficients[j+N*5+p+1] <- 1 ## l1 constraint
         lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", 0)
 
-        ## penalty term constraints
+        ## penalty term constraints (constrain below 0)
+        constraint_coefficients[j] <- 1 ## beta_j
+        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", 0)
+
+        ## penalty term constraints (constrain above 0)
         constraint_coefficients[j] <- -1  ## beta_j
         lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", 0)
     }
@@ -220,24 +222,20 @@ single_lpSolve <- function(d, lamb, num_vars, start = 10, c = 30, buffer = 10, i
     lpSolveAPI::lp.control(my.lp,sense='min')
 
     ##write.lp(my.lp,'model.lp',type='lp')
-    coeffients_matrix = matrix(0, ncol = length(lamb), nrow = p+1)
+    coeffients_matrix = matrix(0, ncol = length(l1_bounds), nrow = p+1)
 
     ##nConstraints <- nrow(my.lp) + 1  ## we add a constraint in the loop following..
-    for (i in seq_along(lamb)) {
-        ## What is this 9 in the second line below?
-        ##Reply: here, we did not penalize day of week and the
-        ## plg avg features, so there are 8 features left out, that is why we start
-        ## from the 9th predictor
+    for (i in seq_along(l1_bounds)) {
+        ## Vars 1-8 are not constrained by the l1_bound
         constraint_coefficients <- rep(0,N_var)
         constraint_coefficients[(p + 5*N + 1 + 9):(p + 5*N + 1 + p)] <- 1
-        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", 0) # KO added, just in case
-        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", lamb[i])
+        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", l1_bounds[i])
 
         # [KO] Adding (looser) constraint to vars 1 - 8 (day of week and moving average)
-        constraint_coefficients <- rep(0,N_var)
-        constraint_coefficients[(p + 5*N + 1 + 1):(p + 5*N + 1 + 8)] <- 1
-        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", 0)
-        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", 40)
+        #constraint_coefficients <- rep(0,N_var)
+        #constraint_coefficients[(p + 5*N + 1 + 1):(p + 5*N + 1 + 8)] <- 1
+        #lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", 0)
+        #lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", 30)
 
         ##print(my.lp)
         ##assignInMyNamespace("lplist", c(lplist, list(my.lp)))

@@ -53,14 +53,11 @@ compute_prediction_statistics <- function(y, #actual usage arranged according to
 #' response. This additional column, which is typically a date or day
 #' number, has to be named "date" or "day"
 #' @param data the dataset
-#' @param collection is the number of units that will be collected each day of training
-#' @param expiry the number of units expiring in an day and the day after (each day),
-#'     a list of 2 vectors
 #' @param c0 the c0 value
 #' @param history_window Number of days to look back
 #' @param penalty_factor penalty for shortage specified by doctors
 #' @param start the day the model is evaluated??. Default 10
-#' @param min_lambda the smallest acceptable value of lambda (cap on coefficient magnitude)
+#' @param l1_bound_range vector containing the smallest and largest acceptable values of the l1 bound
 #' @param date_column the name of the date or day number column as a
 #'     regex, default is "day|date" i.e. day or date
 #' @param response_column the name of the response column, default is
@@ -80,13 +77,13 @@ compute_prediction_statistics <- function(y, #actual usage arranged according to
 #' @export
 #'
 build_model <- function(data, ## The data set
-                        expiry, ## The number of units expiring in 1 and 2 days (list of 2 vectors)
-                        collection, ## The order schedule during the training period
+                        #expiry, ## The number of units expiring in 1 and 2 days (list of 2 vectors)
+                        #collection, ## The order schedule during the training period
                         c0 = 15, ## the minimum number of units to keep on shelf (c)
                         history_window = 200, ## Number of days to look back
                         penalty_factor = 15, ## the penalty factor for shortage, specified by doctor
-                        start = 10,   ## the day you start evaluating??
-                        min_lambda = 0, # lowest allowed value of lambda
+                        start = 10,   ## the day you start evaluating
+                        l1_bound_range = c(0, 200), ## smallest and largest values of the l1 bound
                         date_column = "day|date",  ## we assume column is named date or day by default
                         response_column = "plt_used",
                         show_progress = TRUE) {
@@ -100,7 +97,8 @@ build_model <- function(data, ## The data set
     d <- data[seq.int(n - history_window + 1, n), ]
     data_column_names <- names(data)
     number_of_columns <- ncol(data)
-    print(number_of_columns)
+    print(number_of_columns - 2) # This is the number of features used
+    print(l1_bound_range)
 
     resp_var_index <- grep(response_column, data_column_names)
     date_var_index <- grep(date_column, data_column_names)
@@ -112,22 +110,21 @@ build_model <- function(data, ## The data set
 
     nfolds <- 8 # for cross validation
 
-    # used as hyper parameter in cross validation - sets bounds for which coefficients
-    # for features other than day of week and lag may not exceed. (KO - took this down by factor of 2)
-    lambds <- 200 - 2 * seq(0, 100 - min_lambda)
+    # used as hyper parameter in cross validation - sets bounds on L1 norm of coef vector
+    l1_bounds <- seq(from = l1_bound_range[2], to = l1_bound_range[1], by = -2)
 
     N <- history_window
     p <- length(predictor_names)
 
     foldid <- create_folds(N, nfolds) # assign CV fold ids to each row
-    predictions_cv <- w_cv <- r_cv <- matrix(NA, nrow = N, ncol = length(lambds))
+    predictions_cv <- w_cv <- r_cv <- matrix(NA, nrow = N, ncol = length(l1_bounds))
 
     XX <- as.matrix(d[, pred_var_indices])
     y <- d[, resp_var_index]
 
     #notice that the repsonse in the processed data have been shifted backward by 1 day
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#
-    # This is the intercept?
+    # This is the intercept
     xMat <- cbind(1, XX)
 
     #the optimization always assume that we make prediction by the end of the day, say 23:59:59
@@ -137,7 +134,7 @@ build_model <- function(data, ## The data set
 
         # Solve for the coefficients and predict
         coeffs <- single_lpSolve(d,
-                                 lamb = lambds,
+                                 l1_bounds = l1_bounds,
                                  num_vars = number_of_columns - 2, # exclude date and response
                                  ind = which(foldid != k),
                                  start = start,
@@ -149,8 +146,8 @@ build_model <- function(data, ## The data set
         #initial_expiry <- c(expiry$e1[foldid == k][1], expiry$e2[foldid == k][1])
         #initial_collection <- collection[foldid == k][1:3]
 
-        # There are predictions for each lambda. Compute waste and remaining inventory for each prediction
-        for (l in seq_along(lambds)){
+        # There are predictions for each l1_bound. Compute waste and remaining inventory for each prediction
+        for (l in seq_along(l1_bounds)){
 
             rr <- compute_prediction_statistics(y,
                                                 t_pred = pred1[, l],
@@ -179,18 +176,17 @@ build_model <- function(data, ## The data set
     cv_loss <- apply(w_cv, 2, function(x) sum( x[-(seq_len(first_day_waste_seen))])) +
         apply(r_cv, 2, function(x) sum(((pos(penalty_factor - x))^2) [-(seq_len(first_day_waste_seen))]) )
 
-    # penalize larger values of lambda? This is kind of weird
     cv_loss <- cv_loss + 2 * (length(cv_loss):1)
 
     index <- which.min(cv_loss)
     coefs <- as.numeric(single_lpSolve(d,
-                                       lamb = lambds[index],
+                                       l1_bound = l1_bounds[index],
                                        num_vars = number_of_columns - 2,
                                        start = start,
                                        c = c0))
     names(coefs) <- c("intercept", predictor_names)
     list(
-        lambda = lambds[index],
+        l1_bound = l1_bounds[index],
         w = w_cv[ , index],
         r = r_cv[ , index],
         first_day_waste_seen = first_day_waste_seen,
