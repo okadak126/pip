@@ -41,8 +41,9 @@ create_folds <- function(n, nfold){
     if(i < nfold - 1L){
       foldid[(i*fold_len + 1):((i+1)*fold_len)] = i+1
     }else{
-      foldid[(i*fold_len + 1):n] = i+1
+      foldid[(i*fold_len + 1):n] = i+1 # KO corrected
     }
   }
   foldid
 }
+

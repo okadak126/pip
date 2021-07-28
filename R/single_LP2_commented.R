@@ -12,7 +12,8 @@
 
 #' Solve an LP problem
 #' @param d the data frame
-#' @param l1_bounds the upper bound on the l1 norm of coefficient vector
+#' @param l1_bounds the upper bound on the l1 norm of coefficient vector (aside from lag and days of week)
+#' @param lag_bounds the upper bound on the seven day moving average (lag) parameter
 #' @param num_vars the number of features/covariates in the dataset.
 #' @param start the start date
 #' @param c the value for c_0
@@ -22,248 +23,263 @@
 #' @importFrom lpSolveAPI set.objfn get.variables
 #' @export
 #'
-single_lpSolve <- function(d, l1_bounds, num_vars, start = 10, c = 30, buffer = 10, ind = NULL) {
-    doing_cv <- !is.null(ind)
-    ## ind, if specified, is sorted!!! We make use of that below
+single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 30, buffer = 10, ind = NULL) {
+  doing_cv <- !is.null(ind)
+  ## ind, if specified, is sorted!!! We make use of that below
 
-    XX <- d[, 2:(num_vars + 1)]
-    y <- d[, (num_vars + 2)]
+  XX <- d[, 2:(num_vars + 1)]
+  y <- d[, (num_vars + 2)]
 
-    N <- nrow(XX)
-    p <- ncol(XX)
+  N <- nrow(XX)
+  p <- ncol(XX)
 
-    if (!doing_cv) ind <- 1:N
+  if (!doing_cv) ind <- 1:N
 
-    pind <- p + ind # indices of waste for CV fold (minimize sum of these in obj func)
+  pind <- p + ind # indices of waste for CV fold (minimize sum of these in obj func)
 
-    ## Remember y is usage, so y[i] is known usage on day i
-    ## p betas, N ws, N r1s, N r2s, N xs, N ts, 1 intercept, p bounds
-    N_var <- p + 5*N + 1 + p
+  ## Remember y is usage, so y[i] is known usage on day i
+  ## p betas, N ws, N r1s, N r2s, N xs, N ts, 1 intercept, p bounds
+  N_var <- p + 5*N + 1 + p
 
-    my.lp <- lpSolveAPI::make.lp(0,N_var)
+  my.lp <- lpSolveAPI::make.lp(0,N_var)
+  lp.control(my.lp, timeout=30)
 
-    obj_coefficients <- rep(0,N_var)
+  obj_coefficients <- rep(0,N_var)
 
-    ## Set coefs of w to be 1's (eq 9)
-    obj_coefficients[pind] <- 1
-    lpSolveAPI::set.objfn(my.lp,obj_coefficients)
+  ## Set coefs of w to be 1's (eq 9)
+  obj_coefficients[pind] <- 1
+  lpSolveAPI::set.objfn(my.lp,obj_coefficients)
 
-    ## Constrain sum of day of week coefs of beta to be zero??  Why?
-    ## Reply: There is non-identifiability issue with the day of week
-    ## information. We can add the same value its all coefficients of
-    ## these seven features, and shift the intercept correspondingly,
-    ## the final model will be equivalent. Wihout loss of generality,
-    ## we constrain the week sum of coefs to be 0, it leads to better
-    ## intepretability and solves the identifiability issue. That's
-    ## why I do not need to remove the first feature. If you have
-    ## removed the first feature, then this constraint is no longer
-    ## needed. However, later, when we apply L1 penalty, I have left
-    ## out the day of week features(7)+average PLT consumption
-    ## feature(1)(because we know that then are important and a linear
-    ## model with them will not lead to overfitting), we need to
-    ## change that accordingly as a result. I have removed the first
-    ## two lines.
+  ## Constrain sum of day of week coefs of beta to be zero??  Why?
+  ## Reply: There is non-identifiability issue with the day of week
+  ## information. We can add the same value its all coefficients of
+  ## these seven features, and shift the intercept correspondingly,
+  ## the final model will be equivalent. Wihout loss of generality,
+  ## we constrain the week sum of coefs to be 0, it leads to better
+  ## intepretability and solves the identifiability issue. That's
+  ## why I do not need to remove the first feature. If you have
+  ## removed the first feature, then this constraint is no longer
+  ## needed. However, later, when we apply L1 penalty, I have left
+  ## out the day of week features(7)+average PLT consumption
+  ## feature(1)(because we know that then are important and a linear
+  ## model with them will not lead to overfitting), we need to
+  ## change that accordingly as a result. I have removed the first
+  ## two lines.
+  constraint_coefficients <- rep(0,N_var)
+  constraint_coefficients[1:7] <- 1
+  lpSolveAPI::add.constraint(my.lp, constraint_coefficients, type = "=", 0)
+
+  ##w >=0
+  for (i in 1:N){
+    ## Setting each coeff of w to be non-negative: (eq 13)
     constraint_coefficients <- rep(0,N_var)
-    constraint_coefficients[1:7] <- 1
-    lpSolveAPI::add.constraint(my.lp, constraint_coefficients, type = "=", 0)
+    constraint_coefficients[i+p] <- 1
+    lpSolveAPI::add.constraint(my.lp, constraint_coefficients, type = ">=", 0)
+  }
 
-    ##w >=0
-    for (i in 1:N){
-        ## Setting each coeff of w to be non-negative: (eq 13)
-        constraint_coefficients <- rep(0,N_var)
-        constraint_coefficients[i+p] <- 1
-        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, type = ">=", 0)
-    }
-
-    ##start
-    ## model evaluation begins on day start + 1 but collection
-    ## begins start + 3
-    ##
-    ## What is this 10 in the next below??
-    ## reply: our model started making prediction at day start+1,
-    ## thus we can only decide on the new units
-    ## come in at day start+4, the dates 1, 2, 3's new units are given by
-    ## x_{start+1} = y_{start+1}+c+buffer; x_{start+2} = y_{start+2};x_{start+3} = y_{start+3}
-    rhs_offset <- c(c + buffer, 0, 0)
-    for (i in seq_len(3L)) {
-        constraint_coefficients <- rep(0,N_var)
-        constraint_coefficients[start+i+p+3*N] <- 1 ## x_{start + 1}
-        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "=", y[start+i] + rhs_offset[i])
-    }
-
-    ## Set
-    ## Setting r1 to zero for start day?? Reply: yes.
+  ##start
+  ## model evaluation begins on day start + 1 but collection
+  ## begins start + 3
+  ##
+  ## What is this 10 in the next below??
+  ## reply: our model started making prediction at day start+1,
+  ## thus we can only decide on the new units
+  ## come in at day start+4, the dates 1, 2, 3's new units are given by
+  ## x_{start+1} = y_{start+1}+c+buffer; x_{start+2} = y_{start+2};x_{start+3} = y_{start+3}
+  rhs_offset <- c(c + buffer, 0, 0)
+  for (i in seq_len(3L)) {
     constraint_coefficients <- rep(0,N_var)
-    constraint_coefficients[start+p+N] <- 1 ## r_{start}(1)
-    lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "=",0)
+    constraint_coefficients[start+i+p+3*N] <- 1 ## x_{start + 1}
+    lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "=", y[start+i] + rhs_offset[i])
+  }
 
-    ## Setting r2 to zero for start day??  Reply: yes. The initial
-    ## values for x_{start+1}, x_{start+2}, x_{start+3} have made sure
-    ## the feasibility of this problem. The model training part here
-    ## does not involve any initial information we input as a
-    ## practitioner, including remaining bags, new bags will be arriving
-    ## for the next three days.
+  ## Set
+  ## Setting r1 to zero for start day?? Reply: yes.
+  constraint_coefficients <- rep(0,N_var)
+  constraint_coefficients[start+p+N] <- 1 ## r_{start}(1)
+  lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "=",0)
+
+  ## Setting r2 to zero for start day??  Reply: yes. The initial
+  ## values for x_{start+1}, x_{start+2}, x_{start+3} have made sure
+  ## the feasibility of this problem. The model training part here
+  ## does not involve any initial information we input as a
+  ## practitioner, including remaining bags, new bags will be arriving
+  ## for the next three days.
+  constraint_coefficients <- rep(0,N_var)
+  constraint_coefficients[start+p+N*2] <- 1 ## r_{start}(2)
+  lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "=",0)
+
+  ##prediction
+  ## Eqn 11
+  ## Total need t_i. Z is the covariate matrix (p columns)
+  for(i in (start+1):N) {
     constraint_coefficients <- rep(0,N_var)
-    constraint_coefficients[start+p+N*2] <- 1 ## r_{start}(2)
-    lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "=",0)
+    constraint_coefficients[i+p+4*N] <- 1 ## t_i
+    constraint_coefficients[1:p] <- -as.numeric(XX[i,]) ## p features on day i
+    constraint_coefficients[p+1+5*N] <- -1 ## negate intercept
+    lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "=", 0)
+  }
 
-    ##prediction
-    ## Eqn 11
-    ## Total need t_i. Z is the covariate matrix (p columns)
-    for(i in (start+1):N) {
-        constraint_coefficients <- rep(0,N_var)
-        constraint_coefficients[i+p+4*N] <- 1 ## t_i
-        constraint_coefficients[1:p] <- -as.numeric(XX[i,]) ## p features on day i
-        constraint_coefficients[p+1+5*N] <- -1 ## negate intercept
-        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "=", 0)
+  for (i in (start+1):N){
+
+    ##remaining
+    ##r1_{i} - r2_{i-1}- r_{i-1} + w_{i} >= -y_{i}
+    ##w_{i} + r2_{i} + r1_{i}- r1_{i-1}-r2_{i-1} - x_{i} == -y_{i}
+    ## r2_{i} - x_{i} <= 0
+
+    ## Eqn 14
+    constraint_coefficients <- rep(0,N_var)
+    constraint_coefficients[i+p+N] <- 1 #r_i(1)
+    constraint_coefficients[i+p] <- 1 #w_i
+    constraint_coefficients[i+p+N-1] <- -1 #r_{i-1}(1)
+    constraint_coefficients[i+p+2*N-1] <- -1 # r_{i-1}(2)
+    lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", -y[i])
+
+    ## Eqn 16
+    constraint_coefficients <- rep(0,N_var)
+    constraint_coefficients[i+p+N] <- 1 # r_i(1) >= 0
+    lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", 0)
+
+    ## Eqn 15
+    constraint_coefficients <- rep(0,N_var)
+    constraint_coefficients[i+p+N] <- 1 ## r_i(1)
+    constraint_coefficients[i+p+N*2] <- 1 ## r_i(2)
+    constraint_coefficients[i+p] = 1 ## w_i
+    constraint_coefficients[i+p+3*N] <- -1 ## x_i
+    constraint_coefficients[i+p+N-1] <- -1 ## r_{i-1}(1)
+    constraint_coefficients[i+p+N*2-1] <- -1 ## r_{i-1}(2)
+    lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "=", -y[i])
+
+    ## Eqn 17. Why is it missing c_0? Maybe because of start day??
+    ## Reply: Yes! Later from day start+4->last day, we have added
+    ## the c there. You have noticed it there. Here we only need
+    ## to initialize start+1->start+3, but I was being lazy and
+    ## had not written them in a seperate small loop.
+
+    constraint_coefficients <- rep(0,N_var)
+    constraint_coefficients[i+p+N*2] <- 1 ## r_i(2)
+    lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", 0)
+
+    ##wasted
+    ##w_{i} - r1_{i-1} >=  - y_{i}
+    ## Eqn 12
+    constraint_coefficients <- rep(0,N_var)
+    constraint_coefficients[i+p] <- 1 ## w_i
+    constraint_coefficients[i+p+N-1] <- -1 ## r_{i-1}(1)
+    lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", -y[i])
+    ##constraint_coefficients[i+p+N-1] = -1 ## repeated from 2 lines above
+    lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", 0)
+  }
+
+  ## Only for cross-validation (Equation 17)
+  ##    if (doing_cv) {  ## Fix per Lexi's email
+  for (i in ind) {
+    if(i >= start+4){
+      constraint_coefficients <- rep(0,N_var)
+      constraint_coefficients[i+p+N*2] = 1 ## r_i(2)
+      lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", c)
     }
+  }
+  ##    }
 
-    for (i in (start+1):N){
+  for (i in seq.int(start+4, N)) {
 
-        ##remaining
-        ##r1_{i} - r2_{i-1}- r_{i-1} + w_{i} >= -y_{i}
-        ##w_{i} + r2_{i} + r1_{i}- r1_{i-1}-r2_{i-1} - x_{i} == -y_{i}
-        ## r2_{i} - x_{i} <= 0
+    ##collecting
+    ##x_{i+3} +  x_{i+2}+x_{i+1}  + r2_{i} + r1_{i} -t_i== 0:start+N
 
-        ## Eqn 14
-        constraint_coefficients <- rep(0,N_var)
-        constraint_coefficients[i+p+N] <- 1 #r_i(1)
-        constraint_coefficients[i+p] <- 1 #w_i
-        constraint_coefficients[i+p+N-1] <- -1 #r_{i-1}(1)
-        constraint_coefficients[i+p+2*N-1] <- -1 # r_{i-1}(2)
-        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", -y[i])
+    ## Implements equation 8 (equation 18 in the slide deck is incorrect - should be 8)
+    constraint_coefficients <- rep(0,N_var)
+    constraint_coefficients[i+3*N+p] <- 1 ## x_{i}
+    if (i %in% ind) {
+      constraint_coefficients[i+3*N-1+p] <- 1 ## x_{i-1}
+      constraint_coefficients[i+3*N-2+p] <- 1 ## x_{i-2}
+      constraint_coefficients[i+p+N-3] <- 1 ## r_{i-3}(1)
+      constraint_coefficients[i+p+N*2-3] <- 1 ## r_{i-3}(2)
+      constraint_coefficients[i+p+N*4-3] <- -1 ## t_{i-3}
+      lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "=", 0)
+    } else {
+      lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "=", y[i])
 
-        ## Eqn 16
-        constraint_coefficients <- rep(0,N_var)
-        constraint_coefficients[i+p+N] <- 1 # r_i(1) >= 0
-        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", 0)
-
-        ## Eqn 15
-        constraint_coefficients <- rep(0,N_var)
-        constraint_coefficients[i+p+N] <- 1 ## r_i(1)
-        constraint_coefficients[i+p+N*2] <- 1 ## r_i(2)
-        constraint_coefficients[i+p] = 1 ## w_i
-        constraint_coefficients[i+p+3*N] <- -1 ## x_i
-        constraint_coefficients[i+p+N-1] <- -1 ## r_{i-1}(1)
-        constraint_coefficients[i+p+N*2-1] <- -1 ## r_{i-1}(2)
-        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "=", -y[i])
-
-        ## Eqn 17. Why is it missing c_0? Maybe because of start day??
-        ## Reply: Yes! Later from day start+4->last day, we have added
-        ## the c there. You have noticed it there. Here we only need
-        ## to initialize start+1->start+3, but I was being lazy and
-        ## had not written them in a seperate small loop.
-
-        constraint_coefficients <- rep(0,N_var)
-        constraint_coefficients[i+p+N*2] <- 1 ## r_i(2)
-        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", 0)
-
-        ##wasted
-        ##w_{i} - r1_{i-1} >=  - y_{i}
-        ## Eqn 12
-        constraint_coefficients <- rep(0,N_var)
-        constraint_coefficients[i+p] <- 1 ## w_i
-        constraint_coefficients[i+p+N-1] <- -1 ## r_{i-1}(1)
-        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", -y[i])
-        ##constraint_coefficients[i+p+N-1] = -1 ## repeated from 2 lines above
-        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", 0)
     }
+  }
+  ## End of Only for cross-validation
 
-    ## Only for cross-validation (Equation 17)
-##    if (doing_cv) {  ## Fix per Lexi's email
-    for (i in ind) {
-        if(i >= start+4){
-            constraint_coefficients <- rep(0,N_var)
-            constraint_coefficients[i+p+N*2] = 1 ## r_i(2)
-            lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", c)
-        }
-    }
-##    }
+  ##write.lp(my.lp,'model.lp',type='lp')
 
-    for (i in seq.int(start+4, N)) {
+  for (j in 1:p) {
+    ## constrain bounds (l1 constraints) KO added this
+    constraint_coefficients <- rep(0,N_var)
+    constraint_coefficients[j+N*5+p+1] <- 1 ## l1 constraint
+    lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", 0)
 
-        ##collecting
-        ##x_{i+3} +  x_{i+2}+x_{i+1}  + r2_{i} + r1_{i} -t_i== 0:start+N
+    ## penalty term constraints (constrain below 0)
+    constraint_coefficients[j] <- 1 ## beta_j
+    lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", 0)
 
-        ## Implements equation 8 (equation 18 in the slide deck is incorrect - should be 8)
-        constraint_coefficients <- rep(0,N_var)
-        constraint_coefficients[i+3*N+p] <- 1 ## x_{i}
-        if (i %in% ind) {
-            constraint_coefficients[i+3*N-1+p] <- 1 ## x_{i-1}
-            constraint_coefficients[i+3*N-2+p] <- 1 ## x_{i-2}
-            constraint_coefficients[i+p+N-3] <- 1 ## r_{i-3}(1)
-            constraint_coefficients[i+p+N*2-3] <- 1 ## r_{i-3}(2)
-            constraint_coefficients[i+p+N*4-3] <- -1 ## t_{i-3}
-            lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "=", 0)
-        } else {
-            lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "=", y[i])
+    ## penalty term constraints (constrain above 0)
+    constraint_coefficients[j] <- -1  ## beta_j
+    lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", 0)
+  }
 
-        }
-    }
-    ## End of Only for cross-validation
+  lpSolveAPI::set.bounds(my.lp, lower = rep(-1000,ncol(my.lp)), upper = rep(1000,ncol(my.lp)))
+  lpSolveAPI::lp.control(my.lp,sense='min')
 
-    ##write.lp(my.lp,'model.lp',type='lp')
-    for (j in 1:p) {
-        ## constrain bounds (l1 constraints) KO added this
-        constraint_coefficients <- rep(0,N_var)
-        constraint_coefficients[j+N*5+p+1] <- 1 ## l1 constraint
-        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", 0)
+  coefficients_matrix = matrix(0, ncol = length(l1_bounds) * length(lag_bounds), nrow = p+1)
 
-        ## penalty term constraints (constrain below 0)
-        constraint_coefficients[j] <- 1 ## beta_j
-        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", 0)
+  for (i in seq_along(l1_bounds)) {
+    ## Vars 1-8 are not constrained by the l1_bound
+    constraint_coefficients <- rep(0,N_var)
+    constraint_coefficients[(p + 5*N + 1 + 9):(p + 5*N + 1 + p)] <- 1
+    lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", l1_bounds[i])
 
-        ## penalty term constraints (constrain above 0)
-        constraint_coefficients[j] <- -1  ## beta_j
-        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", 0)
-    }
+    for (j in seq_along(lag_bounds)) {
 
-    lpSolveAPI::set.bounds(my.lp, lower = rep(-1000,ncol(my.lp)), upper = rep(1000,ncol(my.lp)))
-    lpSolveAPI::lp.control(my.lp,sense='min')
+      # [KO] Adding (looser) constraint to vars 1 - 8 (day of week and moving average)
+      constraint_coefficients <- rep(0,N_var)
+      constraint_coefficients[p + 5*N + 1 + 8] <- 1
+      #lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", lag_bounds[j])
 
-    ##write.lp(my.lp,'model.lp',type='lp')
-    coeffients_matrix = matrix(0, ncol = length(l1_bounds), nrow = p+1)
+      status <- solve(my.lp)
 
-    ##nConstraints <- nrow(my.lp) + 1  ## we add a constraint in the loop following..
-    for (i in seq_along(l1_bounds)) {
-        ## Vars 1-8 are not constrained by the l1_bound
+      nConstraints <- nrow(my.lp)
+
+      # maybe replace with a switch statement?
+      if (status == 7) {
+          ## we add a constraint in the loop following..
+        # If a timeout occurs, try to solve the problem with looser constraints
+        warning("A timeout occurred. Loosening L1 constraints", call. = FALSE)
+        #lpSolveAPI::delete.constraint(my.lp, c(nConstraints - 1, nConstraints)) # delete the general l1 constraint
+        lpSolveAPI::delete.constraint(my.lp, nConstraints)
+        # relax the L1 constraints aside from day of week and seven day moving average
         constraint_coefficients <- rep(0,N_var)
         constraint_coefficients[(p + 5*N + 1 + 9):(p + 5*N + 1 + p)] <- 1
-        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", l1_bounds[i])
+        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", l1_bounds[i] + 4)
 
-        # [KO] Adding (looser) constraint to vars 1 - 8 (day of week and moving average)
+        # relax the seven day moving average constraint
         #constraint_coefficients <- rep(0,N_var)
-        #constraint_coefficients[(p + 5*N + 1 + 1):(p + 5*N + 1 + 8)] <- 1
-        #lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", 0)
-        #lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", 30)
-
-        ##print(my.lp)
-        ##assignInMyNamespace("lplist", c(lplist, list(my.lp)))
-
+        #constraint_coefficients[p + 5*N + 1 + 8] <- 1
+        #lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", lag_bounds[j] + 2)
         status <- solve(my.lp)
-        if (status > 0) {
-            stop(sprintf("lpSolveStatus is %d", status))
-        }
+      }
 
+      if (status == 5)  {
+        coefficients_matrix[ , (i - 1) * length(lag_bounds) + j ] = 0.0 # set all coefs to 0
+      }
+      else if (status > 0) {
+        stop(sprintf("lpSolveStatus is %d", status))
+      }
+      else {
         coeffs <- c(lpSolveAPI::get.variables(my.lp)[5*N+p+1],
-                    lpSolveAPI::get.variables(my.lp)[1:p])
-        coeffients_matrix[ , i] = coeffs  ## all the beta_j's
+                  lpSolveAPI::get.variables(my.lp)[1:p])
+        coeffs[abs(coeffs) < 5e-12] <- 0.0 # set coeffs below tolerance to 0 (may fix numeric issues)
+        coefficients_matrix[ , (i - 1) * length(lag_bounds) + j ] = coeffs  ## all the beta_j's
+      }
 
-        ## Remove last constraint
-        ##lpSolveAPI::delete.constraint(my.lp, nConstraints)
-
-        ## aa = as.numeric(lpSolveAPI::get.variables(my.lp)[1:p])
-        ## ## Store the coefficients for each lambda
-        ## coeffients_matrix[-1,i] = aa  ## all the beta_j's
-        ## coeffients_matrix[1, i] = as.numeric(lpSolveAPI::get.variables(my.lp)[5*N+p+1])  ## the intercept
-        ## ## Compute the predictions t_i
-        ## predictions[,i] = apply(XX,1, function(x) sum(x*coeffients_matrix[-1,i])+coeffients_matrix[1,i])
+      # Delete the last constraint that has been applied
+      #lpSolveAPI::delete.constraint(my.lp, nConstraints)
     }
+  }
+  coefficients_matrix
 
-
-    ## aa <- as.numeric(lpSolveAPI::get.variables(my.lp)[1:p])  ## all the beta_j's
-    ## coeffs <- c(as.numeric(lpSolveAPI::get.variables(my.lp)[5*N+p+1]),aa)  ## the intercept
-    ## coeffs
-    coeffients_matrix
 }
 

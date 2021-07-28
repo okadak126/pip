@@ -25,26 +25,27 @@ compute_prediction_statistics <- function(y, #actual usage arranged according to
                                           initial_expiry_data = c(0, 0),
                                           initial_collection_data = c(60, 60, 60),
                                           start = 10) {
-    N <- length(y)## remove day column
-    r <- matrix(0, nrow = N , ncol = 2)
-    x <- numeric(N + 3)
-    w <- s <- numeric(N)
-    x[seq.int(start, start + 2)] <- initial_collection_data
-    for (i in seq.int(start, N)) {
-        if(i == start){
-            w[i] <- pos(initial_expiry_data[1] - y[i])
-            r[i, 1] <- pos(initial_expiry_data[1] + initial_expiry_data[2] - y[i] - w[i])
-            s[i] <- pos(y[i] - initial_expiry_data[1] - initial_expiry_data[ 2] - x[i])
-            r[i, 2] <- pos(x[i] - pos(y[i] - initial_expiry_data[1] - initial_expiry_data[2]))
-        }else{
-            w[i] <- pos(r[i - 1 , 1] - y[i])
-            r[i, 1] <- pos(r[i - 1, 1] + r[i - 1, 2] - y[i] - w[i])
-            s[i] <- pos(y[i] - r[i - 1, 1] - r[i - 1, 2] - x[i])
-            r[i, 2] <- pos(x[i] - pos(y[i] - r[i - 1, 1] - r[i - 1, 2]))
-        }
-        x[i + 3] <- floor(pos(t_pred[i] - x[i + 1] - x[i + 2] - r[i, 1] - r[i, 2] + 1))
+  N <- length(y)## remove day column
+  r <- matrix(0, nrow = N , ncol = 2)
+  x <- numeric(N + 3)
+  w <- s <- numeric(N)
+  x[seq.int(start, start + 2)] <- initial_collection_data
+
+  for (i in seq.int(start, N)) {
+    if(i == start){
+      w[i] <- pos(initial_expiry_data[1] - y[i])
+      r[i, 1] <- pos(initial_expiry_data[1] + initial_expiry_data[2] - y[i] - w[i])
+      s[i] <- pos(y[i] - initial_expiry_data[1] - initial_expiry_data[ 2] - x[i])
+      r[i, 2] <- pos(x[i] - pos(y[i] - initial_expiry_data[1] - initial_expiry_data[2]))
+    }else{
+      w[i] <- pos(r[i - 1 , 1] - y[i])
+      r[i, 1] <- pos(r[i - 1, 1] + r[i - 1, 2] - y[i] - w[i])
+      s[i] <- pos(y[i] - r[i - 1, 1] - r[i - 1, 2] - x[i])
+      r[i, 2] <- pos(x[i] - pos(y[i] - r[i - 1, 1] - r[i - 1, 2]))
     }
-    return(list(x = x, r = r, w = w, s = s))
+    x[i + 3] <- floor(pos(t_pred[i] - x[i + 1] - x[i + 2] - r[i, 1] - r[i, 2] + 1))
+  }
+  return(list(x = x, r = r, w = w, s = s))
 }
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#
 #' Run a fit on a given dataset
@@ -77,120 +78,129 @@ compute_prediction_statistics <- function(y, #actual usage arranged according to
 #' @export
 #'
 build_model <- function(data, ## The data set
-                        #expiry, ## The number of units expiring in 1 and 2 days (list of 2 vectors)
-                        #collection, ## The order schedule during the training period
                         c0 = 15, ## the minimum number of units to keep on shelf (c)
                         history_window = 200, ## Number of days to look back
                         penalty_factor = 15, ## the penalty factor for shortage, specified by doctor
                         start = 10,   ## the day you start evaluating
-                        l1_bound_range = c(0, 200), ## smallest and largest values of the l1 bound
+                        l1_bounds = seq(from = 200, to = 0, by = -2), ## smallest and largest values of the l1 bound
                         date_column = "day|date",  ## we assume column is named date or day by default
                         response_column = "plt_used",
                         show_progress = TRUE) {
 
-    ## Check that we have enough history!
-    n <- nrow(data)
-    if (history_window > n) {
-        stop(sprintf("build_model: history_window(%d) must be less than data rows(%d)",
-                     history_window, n))
+  ## Check that we have enough history!
+  n <- nrow(data)
+  if (history_window > n) {
+    stop(sprintf("build_model: history_window(%d) must be less than data rows(%d)",
+                 history_window, n))
+  }
+  d <- data[seq.int(n - history_window + 1, n), ]
+  data_column_names <- names(data)
+  number_of_columns <- ncol(data)
+  print(paste0("Number of features:", number_of_columns - 2)) # This is the number of features used
+
+  resp_var_index <- grep(response_column, data_column_names)
+  date_var_index <- grep(date_column, data_column_names)
+  if (length(resp_var_index) < 1 || length(date_var_index) < 1) {
+    stop("Response and/or date columns not found!")
+  }
+  pred_var_indices <- setdiff(seq.int(2L, number_of_columns), c(resp_var_index, date_var_index))
+  predictor_names <- data_column_names[pred_var_indices]
+
+  nfolds <- max(floor(history_window / 21), 8)
+
+  # used as hyper parameter in cross validation - sets bounds on L1 norm of coef vector
+  l1_bounds <- sort(l1_bounds, decreasing = TRUE)
+  lag_bounds <- c(1000) # presetting to this for now
+
+  N <- history_window
+  p <- length(predictor_names)
+
+  foldid <- create_folds(N, nfolds) # assign CV fold ids to each row
+  predictions_cv <- w_cv <- r_cv <- s_cv <- matrix(NA,
+                                                   nrow = N,
+                                                   ncol = length(l1_bounds) * length(lag_bounds))
+
+  XX <- as.matrix(d[, pred_var_indices])
+  y <- d[, resp_var_index]
+
+  #notice that the repsonse in the processed data have been shifted backward by 1 day
+  #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#
+  # This is the intercept
+  xMat <- cbind(1, XX)
+
+  #the optimization always assume that we make prediction by the end of the day, say 23:59:59
+  pb <- if (show_progress) utils::txtProgressBar(min = 0, max = nfolds, style = 3) else NULL
+
+  for (k in seq_len(nfolds)) {
+
+    # Solve for the coefficients and predict
+    coeffs <- single_lpSolve(d,
+                             l1_bounds = l1_bounds,
+                             lag_bounds = lag_bounds,
+                             num_vars = number_of_columns - 2, # exclude date and response
+                             ind = which(foldid != k),
+                             start = start,
+                             c = c0)
+
+    pred1 <- xMat %*% coeffs
+
+    # There are predictions for each l1_bound. Compute waste and remaining inventory for each prediction
+
+    for (l in seq_len(length(l1_bounds) * length(lag_bounds))){
+
+        rr <- compute_prediction_statistics(y,
+                                           t_pred = pred1[, l],
+                                           initial_expiry_data = c(0, 0),
+                                           initial_collection_data = y[seq.int(start + 1L, start + 3L)],
+                                           start = start)
+
+        ## The 30 above is the parameter passed, i.e. min number of units to keep on shelf.
+        ## So I changed it to c0
+        w_cv[foldid == k, l] <- rr$w[foldid == k]
+        r_cv[foldid == k, l] <- rr$r[foldid == k, 1] + rr$r[foldid == k, 2]
+        s_cv[foldid == k, l] <- rr$s[foldid == k]
     }
-    d <- data[seq.int(n - history_window + 1, n), ]
-    data_column_names <- names(data)
-    number_of_columns <- ncol(data)
-    print(paste0("Number of features:", number_of_columns - 2)) # This is the number of features used
 
-    resp_var_index <- grep(response_column, data_column_names)
-    date_var_index <- grep(date_column, data_column_names)
-    if (length(resp_var_index) < 1 || length(date_var_index) < 1) {
-        stop("Response and/or date columns not found!")
-    }
-    pred_var_indices <- setdiff(seq.int(2L, number_of_columns), c(resp_var_index, date_var_index))
-    predictor_names <- data_column_names[pred_var_indices]
+    if (show_progress) utils::setTxtProgressBar(pb, k)
+  }
+  if (show_progress) close(pb)
+  #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#
+  ## Since we skip for start days and then we see the results only three days later,
+  ## we see waste is start + 5
+  first_day_waste_seen <- start + 5 ## 15 is this number
 
-    nfolds <- 8 # for cross validation (changed from 8)
+  # The loss is given by the sum of the waste + the square of the positive difference
+  # between the penalty factor (default = 15) and the remaining inventory
+  cv_loss <- apply(w_cv, 2, function(x) sum( x[-(seq_len(first_day_waste_seen))])) +
+    apply(r_cv, 2, function(x) sum(((pos(penalty_factor - x))^2) [-(seq_len(first_day_waste_seen))]) ) +
+    apply(s_cv, 2, function(x) sum( (x^2)[-(seq_len(first_day_waste_seen))]))
 
-    # used as hyper parameter in cross validation - sets bounds on L1 norm of coef vector
-    l1_bounds <- seq(from = l1_bound_range[2], to = l1_bound_range[1], by = -2)
+  cv_loss <- cv_loss + l1_bounds
 
-    N <- history_window
-    p <- length(predictor_names)
+  index <- which.min(cv_loss)
+  l1_bound_best <- l1_bounds[floor((index - 1) / length(lag_bounds) + 1)]
+  lag_bound_best <- lag_bounds[floor((index - 1) %% length(lag_bounds) + 1)]
+  print(l1_bound_best)
+  print(lag_bound_best)
 
-    foldid <- create_folds(N, nfolds) # assign CV fold ids to each row
-    predictions_cv <- w_cv <- r_cv <- matrix(NA, nrow = N, ncol = length(l1_bounds))
+  coefs <- as.numeric(single_lpSolve(d,
+                                     l1_bounds = l1_bound_best,
+                                     lag_bounds = lag_bound_best,
+                                     num_vars = number_of_columns - 2,
+                                     start = start,
+                                     c = c0))
 
-    XX <- as.matrix(d[, pred_var_indices])
-    y <- d[, resp_var_index]
-
-    #notice that the repsonse in the processed data have been shifted backward by 1 day
-#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#
-    # This is the intercept
-    xMat <- cbind(1, XX)
-
-    #the optimization always assume that we make prediction by the end of the day, say 23:59:59
-    pb <- if (show_progress) utils::txtProgressBar(min = 0, max = nfolds, style = 3) else NULL
-
-    for (k in seq_len(nfolds)) {
-
-        # Solve for the coefficients and predict
-        coeffs <- single_lpSolve(d,
-                                 l1_bounds = l1_bounds,
-                                 num_vars = number_of_columns - 2, # exclude date and response
-                                 ind = which(foldid != k),
-                                 start = start,
-                                 c = c0)
-
-        pred1 <- xMat %*% coeffs
-
-        # Obtain true expiry and collection values for each fold
-        #initial_expiry <- c(expiry$e1[foldid == k][1], expiry$e2[foldid == k][1])
-        #initial_collection <- collection[foldid == k][1:3]
-
-        # There are predictions for each l1_bound. Compute waste and remaining inventory for each prediction
-        for (l in seq_along(l1_bounds)){
-
-            rr <- compute_prediction_statistics(y,
-                                                t_pred = pred1[, l],
-                                                #initial_expiry_data = initial_expiry,
-                                                #initial_collection_data = initial_collection,
-                                                initial_expiry_data = c(0, 0),
-                                                initial_collection_data = y[seq.int(start + 1L, start + 3L)],
-                                                start = start)
-
-            ## The 30 above is the parameter passed, i.e. min number of units to keep on shelf.
-            ## So I changed it to c0
-            w_cv[foldid == k, l] <- rr$w[foldid == k]
-            r_cv[foldid == k, l] <- rr$r[foldid == k, 1] + rr$r[foldid == k, 2]
-        }
-
-        if (show_progress) utils::setTxtProgressBar(pb, k)
-    }
-    if (show_progress) close(pb)
-#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#
-    ## Since we skip for start days and then we see the results only three days later,
-    ## we see waste is start + 5
-    first_day_waste_seen <- start + 5 ## 15 is this number
-
-    # The loss is given by the sum of the waste + the square of the positive difference
-    # between the penalty factor (default = 15) and the remaining inventory
-    cv_loss <- apply(w_cv, 2, function(x) sum( x[-(seq_len(first_day_waste_seen))])) +
-        apply(r_cv, 2, function(x) sum(((pos(penalty_factor - x))^2) [-(seq_len(first_day_waste_seen))]) )
-
-    cv_loss <- cv_loss + 2 * (length(cv_loss):1)
-
-    index <- which.min(cv_loss)
-    coefs <- as.numeric(single_lpSolve(d,
-                                       l1_bound = l1_bounds[index],
-                                       num_vars = number_of_columns - 2,
-                                       start = start,
-                                       c = c0))
-    names(coefs) <- c("intercept", predictor_names)
-    list(
-        l1_bound = l1_bounds[index],
-        w = w_cv[ , index],
-        r = r_cv[ , index],
-        first_day_waste_seen = first_day_waste_seen,
-        coefs = coefs
-    )
+  print(coefs)
+  names(coefs) <- c("intercept", predictor_names)
+  list(
+    l1_bound = l1_bound_best,
+    lag_bound = lag_bound_best,
+    w = w_cv[ , index],
+    r = r_cv[ , index],
+    s = s_cv[ , index],
+    first_day_waste_seen = first_day_waste_seen,
+    coefs = coefs
+  )
 }
 
 #'
@@ -203,11 +213,11 @@ build_model <- function(data, ## The data set
 #'
 predict_three_day_sum <- function(model, ## the trained model
                                   new_data) { ## the new dataset with specified number of features
-    predictor_names <- names(model$coefs)[-1]
-    common_names <- intersect(predictor_names, names(new_data))
-    if (length(common_names) != length(predictor_names)) {
-        stop("New data set column names don't match training data set!")
-    }
-    new_data <- as.matrix(new_data[, predictor_names])
-    ceiling(sum(new_data %*% model$coefs[-1] ) + model$coefs[1])
+  predictor_names <- names(model$coefs)[-1]
+  common_names <- intersect(predictor_names, names(new_data))
+  if (length(common_names) != length(predictor_names)) {
+    stop("New data set column names don't match training data set!")
+  }
+  new_data <- as.matrix(new_data[, predictor_names])
+  ceiling(sum(new_data %*% model$coefs[-1] ) + model$coefs[1])
 }
