@@ -13,7 +13,7 @@
 #' Solve an LP problem
 #' @param d the data frame
 #' @param l1_bounds the upper bound on the l1 norm of coefficient vector (aside from lag and days of week)
-#' @param lag_bounds the upper bound on the seven day moving average (lag) parameter
+#' @param lag_bounds the upper bound on the seven day moving average of usage coefficient (lag)
 #' @param num_vars the number of features/covariates in the dataset.
 #' @param start the start date
 #' @param c the value for c_0
@@ -232,52 +232,48 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
     constraint_coefficients[(p + 5*N + 1 + 9):(p + 5*N + 1 + p)] <- 1
     lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", l1_bounds[i])
 
+    nConstraints <- nrow(my.lp) # index refers to l1 constraint
+
     for (j in seq_along(lag_bounds)) {
 
-      # [KO] Adding (looser) constraint to vars 1 - 8 (day of week and moving average)
-      constraint_coefficients <- rep(0,N_var)
-      constraint_coefficients[p + 5*N + 1 + 8] <- 1
-      #lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", lag_bounds[j])
+      # Apply a constraint to the seven day moving average (lag) parameter if applicable
+      if (!is.na(lag_bounds[j])) {
+        constraint_coefficients <- rep(0,N_var)
+        constraint_coefficients[p + 5*N + 1 + 8] <- 1
+        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", lag_bounds[j])
+      }
 
       status <- solve(my.lp)
 
-      nConstraints <- nrow(my.lp)
-
-      # maybe replace with a switch statement?
+      # If a timeout occurs, try to solve the problem with looser constraints
       if (status == 7) {
-          ## we add a constraint in the loop following..
-        # If a timeout occurs, try to solve the problem with looser constraints
         warning("A timeout occurred. Loosening L1 constraints", call. = FALSE)
-        #lpSolveAPI::delete.constraint(my.lp, c(nConstraints - 1, nConstraints)) # delete the general l1 constraint
-        lpSolveAPI::delete.constraint(my.lp, nConstraints)
+        lpSolveAPI::delete.constraint(my.lp, nConstraints) # delete the L1 constraint
         # relax the L1 constraints aside from day of week and seven day moving average
         constraint_coefficients <- rep(0,N_var)
         constraint_coefficients[(p + 5*N + 1 + 9):(p + 5*N + 1 + p)] <- 1
         lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", l1_bounds[i] + 4)
-
-        # relax the seven day moving average constraint
-        #constraint_coefficients <- rep(0,N_var)
-        #constraint_coefficients[p + 5*N + 1 + 8] <- 1
-        #lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", lag_bounds[j] + 2)
-        status <- solve(my.lp)
       }
 
-      if (status == 5)  {
-        coefficients_matrix[ , (i - 1) * length(lag_bounds) + j ] = 0.0 # set all coefs to 0
+      if (doing_cv && (status == 5 || status == 7))  {
+        # If we are running cross validation, we can accept some failures
+        coefficients_matrix[ , (i - 1) * length(lag_bounds) + j] <- 0.0 # set all coefs to 0
       }
       else if (status > 0) {
         stop(sprintf("lpSolveStatus is %d", status))
       }
       else {
-        coeffs <- c(lpSolveAPI::get.variables(my.lp)[5*N+p+1],
-                  lpSolveAPI::get.variables(my.lp)[1:p])
+        coeffs <- c(lpSolveAPI::get.variables(my.lp)[5*N+p+1], lpSolveAPI::get.variables(my.lp)[1:p])
         coeffs[abs(coeffs) < 5e-12] <- 0.0 # set coeffs below tolerance to 0 (may fix numeric issues)
-        coefficients_matrix[ , (i - 1) * length(lag_bounds) + j ] = coeffs  ## all the beta_j's
+        coefficients_matrix[ , (i - 1) * length(lag_bounds) + j] <- coeffs  ## all the beta_j's
       }
 
-      # Delete the last constraint that has been applied
-      #lpSolveAPI::delete.constraint(my.lp, nConstraints)
+      # If a constraint was added, clean up the lag bound
+      if (!is.na(lag_bounds[j])) {
+        lpSolveAPI::delete.constraint(my.lp, nConstraints + 1) # delete the lag bound constraint
+      }
     }
+
   }
   coefficients_matrix
 

@@ -82,7 +82,8 @@ build_model <- function(data, ## The data set
                         history_window = 200, ## Number of days to look back
                         penalty_factor = 15, ## the penalty factor for shortage, specified by doctor
                         start = 10,   ## the day you start evaluating
-                        l1_bounds = seq(from = 200, to = 0, by = -2), ## smallest and largest values of the l1 bound
+                        l1_bounds = seq(from = 200, to = 0, by = -2), ## allowed values of the l1 bound
+                        lag_bounds = c(NA), ## vector of bounds on coefficient for seven day moving average of daily use (NA = no bound)
                         date_column = "day|date",  ## we assume column is named date or day by default
                         response_column = "plt_used",
                         show_progress = TRUE) {
@@ -110,7 +111,6 @@ build_model <- function(data, ## The data set
 
   # used as hyper parameter in cross validation - sets bounds on L1 norm of coef vector
   l1_bounds <- sort(l1_bounds, decreasing = TRUE)
-  lag_bounds <- c(1000) # presetting to this for now
 
   N <- history_window
   p <- length(predictor_names)
@@ -146,7 +146,7 @@ build_model <- function(data, ## The data set
 
     # There are predictions for each l1_bound. Compute waste and remaining inventory for each prediction
 
-    for (l in seq_len(length(l1_bounds) * length(lag_bounds))){
+    for (l in seq_len(length(l1_bounds) * length(lag_bounds))) {
 
         rr <- compute_prediction_statistics(y,
                                            t_pred = pred1[, l],
@@ -175,11 +175,11 @@ build_model <- function(data, ## The data set
     apply(r_cv, 2, function(x) sum(((pos(penalty_factor - x))^2) [-(seq_len(first_day_waste_seen))]) ) +
     apply(s_cv, 2, function(x) sum( (x^2)[-(seq_len(first_day_waste_seen))]))
 
-  cv_loss <- cv_loss + l1_bounds
+  cv_loss <- cv_loss + rep(l1_bounds, each=length(lag_bounds))
 
   index <- which.min(cv_loss)
-  l1_bound_best <- l1_bounds[floor((index - 1) / length(lag_bounds) + 1)]
-  lag_bound_best <- lag_bounds[floor((index - 1) %% length(lag_bounds) + 1)]
+  l1_bound_best <- l1_bounds[(index - 1) / length(lag_bounds) + 1]
+  lag_bound_best <- lag_bounds[(index - 1) %% length(lag_bounds) + 1]
   print(l1_bound_best)
   print(lag_bound_best)
 
