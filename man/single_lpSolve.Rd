@@ -4,12 +4,23 @@
 \alias{single_lpSolve}
 \title{Solve an LP problem}
 \usage{
-single_lpSolve(d, lamb, num_vars, start = 10, c = 30, buffer = 10, ind = NULL)
+single_lpSolve(
+  d,
+  l1_bounds,
+  lag_bounds,
+  num_vars,
+  start = 10,
+  c = 30,
+  buffer = 10,
+  ind = NULL
+)
 }
 \arguments{
 \item{d}{the data frame}
 
-\item{lamb}{the lambda value}
+\item{l1_bounds}{the upper bound on the l1 norm of coefficient vector (aside from lag and days of week)}
+
+\item{lag_bounds}{the upper bound on the seven day moving average of usage coefficient (lag)}
 
 \item{num_vars}{the number of features/covariates in the dataset.}
 

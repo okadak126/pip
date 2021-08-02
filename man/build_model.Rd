@@ -6,13 +6,12 @@
 \usage{
 build_model(
   data,
-  expiry,
-  collection,
   c0 = 15,
   history_window = 200,
   penalty_factor = 15,
   start = 10,
-  min_lambda = 0,
+  l1_bounds = seq(from = 200, to = 0, by = -2),
+  lag_bounds = c(NA),
   date_column = "day|date",
   response_column = "plt_used",
   show_progress = TRUE
@@ -20,11 +19,6 @@ build_model(
 }
 \arguments{
 \item{data}{the dataset}
-
-\item{expiry}{the number of units expiring in an day and the day after (each day),
-a list of 2 vectors}
-
-\item{collection}{is the number of units that will be collected each day of training}
 
 \item{c0}{the c0 value}
 
@@ -34,7 +28,11 @@ a list of 2 vectors}
 
 \item{start}{the day the model is evaluated??. Default 10}
 
-\item{min_lambda}{the smallest acceptable value of lambda (cap on coefficient magnitude)}
+\item{l1_bounds}{vector containing the possible values of the l1 bound on coefs aside from
+days of the week and seven day moving average}
+
+\item{lag_bounds}{vector containing possible values of the bound on the seven day moving average
+(lag) coefficient}
 
 \item{date_column}{the name of the date or day number column as a
 regex, default is "day|date" i.e. day or date}

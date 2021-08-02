@@ -25,7 +25,7 @@
 #'
 single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 30, buffer = 10, ind = NULL) {
   doing_cv <- !is.null(ind)
-  ## ind, if specified, is sorted!!! We make use of that below
+  ## ind and l1_bounds must be sorted (ascending and descending, respectively)
 
   XX <- d[, 2:(num_vars + 1)]
   y <- d[, (num_vars + 2)]
@@ -37,7 +37,7 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
 
   pind <- p + ind # indices of waste for CV fold (minimize sum of these in obj func)
 
-  ## Remember y is usage, so y[i] is known usage on day i
+  ## y is usage, so y[i] is known usage on day i
   ## p betas, N ws, N r1s, N r2s, N xs, N ts, 1 intercept, p bounds
   N_var <- p + 5*N + 1 + p
 

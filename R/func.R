@@ -58,7 +58,10 @@ compute_prediction_statistics <- function(y, #actual usage arranged according to
 #' @param history_window Number of days to look back
 #' @param penalty_factor penalty for shortage specified by doctors
 #' @param start the day the model is evaluated??. Default 10
-#' @param l1_bound_range vector containing the smallest and largest acceptable values of the l1 bound
+#' @param l1_bounds vector containing the possible values of the l1 bound on coefs aside from
+#'     days of the week and seven day moving average
+#' @param lag_bounds vector containing possible values of the bound on the seven day moving average
+#'     (lag) coefficient
 #' @param date_column the name of the date or day number column as a
 #'     regex, default is "day|date" i.e. day or date
 #' @param response_column the name of the response column, default is
