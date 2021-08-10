@@ -253,6 +253,7 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
         constraint_coefficients <- rep(0,N_var)
         constraint_coefficients[(p + 5*N + 1 + 9):(p + 5*N + 1 + p)] <- 1
         lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", l1_bounds[i] + 4)
+        status <- solve(my.lp)
       }
 
       if (doing_cv && (status == 5 || status == 7))  {
@@ -269,10 +270,13 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
       }
 
       # If a constraint was added, clean up the lag bound
-      if (!is.na(lag_bounds[j])) {
-        lpSolveAPI::delete.constraint(my.lp, nConstraints + 1) # delete the lag bound constraint
+      while (nConstraints < nrow(my.lp)) {
+        lpSolveAPI::delete.constraint(my.lp, nrow(my.lp)) # delete the lag bound constraint
       }
+
     }
+    # delete the L1 bound constraint
+    lpSolveAPI::delete.constraint(my.lp, nConstraints)
 
   }
   coefficients_matrix

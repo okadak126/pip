@@ -43,7 +43,7 @@ compute_prediction_statistics <- function(y, #actual usage arranged according to
       s[i] <- pos(y[i] - r[i - 1, 1] - r[i - 1, 2] - x[i])
       r[i, 2] <- pos(x[i] - pos(y[i] - r[i - 1, 1] - r[i - 1, 2]))
     }
-    x[i + 3] <- floor(pos(t_pred[i] - x[i + 1] - x[i + 2] - r[i, 1] - r[i, 2] + 1))
+    x[i + 3] <- max(floor(pos(t_pred[i] - x[i + 1] - x[i + 2] - r[i, 1] - r[i, 2] + 1)))
   }
   return(list(x = x, r = r, w = w, s = s))
 }
@@ -98,6 +98,7 @@ build_model <- function(data, ## The data set
                  history_window, n))
   }
   d <- data[seq.int(n - history_window + 1, n), ]
+
   data_column_names <- names(data)
   number_of_columns <- ncol(data)
   print(paste0("Number of features:", number_of_columns - 2)) # This is the number of features used
@@ -110,17 +111,21 @@ build_model <- function(data, ## The data set
   pred_var_indices <- setdiff(seq.int(2L, number_of_columns), c(resp_var_index, date_var_index))
   predictor_names <- data_column_names[pred_var_indices]
 
-  nfolds <- max(floor(history_window / 21), 8)
+  nfolds <- 8 # number of folds used
+  seed_prop <- 0.44 # proportion of training dataset used as seed (prior to n folds)
 
   # used as hyper parameter in cross validation - sets bounds on L1 norm of coef vector
   l1_bounds <- sort(l1_bounds, decreasing = TRUE)
 
-  N <- history_window
+  N <- floor(history_window * (1 - seed_prop))
+  seed_length <- history_window - N
   p <- length(predictor_names)
 
   foldid <- create_folds(N, nfolds) # assign CV fold ids to each row
-  predictions_cv <- w_cv <- r_cv <- s_cv <- matrix(NA,
-                                                   nrow = N,
+  foldid <- c(rep(0, seed_length), foldid) + 1 # Tack on the seed length (add 1 to prevent 0 ind)
+
+  predictions_cv <- w_cv <- r_cv <- s_cv <- matrix(0,
+                                                   nrow = history_window,
                                                    ncol = length(l1_bounds) * length(lag_bounds))
 
   XX <- as.matrix(d[, pred_var_indices])
@@ -141,57 +146,69 @@ build_model <- function(data, ## The data set
                              l1_bounds = l1_bounds,
                              lag_bounds = lag_bounds,
                              num_vars = number_of_columns - 2, # exclude date and response
-                             ind = which(foldid != k),
+                             ind = which(foldid < k + 1),
                              start = start,
                              c = c0)
 
-    pred1 <- xMat %*% coeffs
+    t_pred_cv <- xMat %*% coeffs # usage for next 3 days (for each L and lag bound)
 
-    # There are predictions for each l1_bound. Compute waste and remaining inventory for each prediction
+    # There are predictions for each l1_bound.
+    # Compute waste, shortage, and remaining inventory for each prediction
 
     for (l in seq_len(length(l1_bounds) * length(lag_bounds))) {
 
         rr <- compute_prediction_statistics(y,
-                                           t_pred = pred1[, l],
+                                           t_pred = t_pred_cv[, l],
                                            initial_expiry_data = c(0, 0),
                                            initial_collection_data = y[seq.int(start + 1L, start + 3L)],
                                            start = start)
 
         ## The 30 above is the parameter passed, i.e. min number of units to keep on shelf.
         ## So I changed it to c0
-        w_cv[foldid == k, l] <- rr$w[foldid == k]
-        r_cv[foldid == k, l] <- rr$r[foldid == k, 1] + rr$r[foldid == k, 2]
-        s_cv[foldid == k, l] <- rr$s[foldid == k]
+        w_cv[foldid == k + 1, l] <- rr$w[foldid == k + 1]
+        r_cv[foldid == k + 1, l] <- rr$r[foldid == k + 1, 1] + rr$r[foldid == k + 1, 2]
+        s_cv[foldid == k + 1, l] <- rr$s[foldid == k + 1]
     }
 
     if (show_progress) utils::setTxtProgressBar(pb, k)
   }
   if (show_progress) close(pb)
   #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#
-  ## Since we skip for start days and then we see the results only three days later,
-  ## we see waste is start + 5
-  first_day_waste_seen <- start + 5 ## 15 is this number
 
-  # The loss is given by the sum of the waste + the square of the positive difference
-  # between the penalty factor (default = 15) and the remaining inventory
-  cv_loss <- apply(w_cv, 2, function(x) sum( x[-(seq_len(first_day_waste_seen))])) +
-    apply(r_cv, 2, function(x) sum(((pos(penalty_factor - x))^2) [-(seq_len(first_day_waste_seen))]) ) +
-    apply(s_cv, 2, function(x) sum( (x^2)[-(seq_len(first_day_waste_seen))]))
+  # Compute the true 3 day usage
+  #t_true <- dplyr::lead(y, n = 1L, default = 0) +
+  #  dplyr::lead(y, n = 2L, default = 0) +
+  #  dplyr::lead(y, n = 3L, default = 0)
 
-  cv_loss <- cv_loss + rep(l1_bounds, each=length(lag_bounds))
+  i_ignore <- c(seq_len(seed_length), (history_window - 1):history_window)
 
-  index <- which.min(cv_loss)
+  waste_loss <- apply(w_cv, 2, function(x) sum( (x)[-i_ignore]) / (N - 2))
+  print(sd(waste_loss))
+  invmax_loss <- apply(r_cv, 2, function(x) sum((pos(x - penalty_factor * 3)) [-i_ignore]) / (N - 2))
+  print(sd(invmax_loss))
+  invmin_loss <- apply(r_cv, 2, function(x) sum((pos(penalty_factor - x)) [-i_ignore]) / (N - 2))
+  print(sd(invmin_loss))
+  short_loss <- apply(s_cv, 2, function(x) sum( (x)[-i_ignore]) / (N - 2))
+  print(sd(short_loss))
+
+  cv_loss <- waste_loss + invmax_loss + invmin_loss  + short_loss
+  plot(x = l1_bounds, y = cv_loss[seq(from = 1, to = length(l1_bounds), by = length(lag_bounds))])
+
+  # ignore the first batch - there seems to be some instability in the first few solves.
+  index <- which.min(cv_loss[-seq_len(5 * length(lag_bounds))]) + 5 * length(lag_bounds)
   l1_bound_best <- l1_bounds[(index - 1) / length(lag_bounds) + 1]
   lag_bound_best <- lag_bounds[(index - 1) %% length(lag_bounds) + 1]
   print(l1_bound_best)
   print(lag_bound_best)
 
-  coefs <- as.numeric(single_lpSolve(d,
-                                     l1_bounds = l1_bound_best,
-                                     lag_bounds = lag_bound_best,
-                                     num_vars = number_of_columns - 2,
-                                     start = start,
-                                     c = c0))
+  # I suspect that the lpSolve is somewhat unstable. Repeatedly solving the same LP
+  # may yield better results.
+  coefs <- single_lpSolve(d,
+                          l1_bounds = c(l1_bound_best + 1, l1_bound_best),
+                          lag_bounds = lag_bound_best,
+                          num_vars = number_of_columns - 2,
+                          start = start,
+                          c = c0)[, 2]
 
   print(coefs)
   names(coefs) <- c("intercept", predictor_names)
@@ -201,7 +218,6 @@ build_model <- function(data, ## The data set
     w = w_cv[ , index],
     r = r_cv[ , index],
     s = s_cv[ , index],
-    first_day_waste_seen = first_day_waste_seen,
     coefs = coefs
   )
 }
