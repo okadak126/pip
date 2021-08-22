@@ -3,6 +3,7 @@
 export(build_model)
 export(compute_prediction_statistics)
 export(cv_lpSolve)
+export(evaluate_model)
 export(pos)
 export(predict_three_day_sum)
 export(single_lpSolve)

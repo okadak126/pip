@@ -42,7 +42,7 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
   N_var <- p + 5*N + 1 + p
 
   my.lp <- lpSolveAPI::make.lp(0,N_var)
-  lp.control(my.lp, timeout=30)
+  lp.control(my.lp, timeout=20)
 
   obj_coefficients <- rep(0,N_var)
 
@@ -246,13 +246,13 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
       status <- solve(my.lp)
 
       # If a timeout occurs, try to solve the problem with looser constraints
-      if (status == 7) {
+      if (status == 7 && !doing_cv) {
         warning("A timeout occurred. Loosening L1 constraints", call. = FALSE)
         lpSolveAPI::delete.constraint(my.lp, nConstraints) # delete the L1 constraint
         # relax the L1 constraints aside from day of week and seven day moving average
         constraint_coefficients <- rep(0,N_var)
         constraint_coefficients[(p + 5*N + 1 + 9):(p + 5*N + 1 + p)] <- 1
-        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", l1_bounds[i] + 4)
+        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", l1_bounds[i] + 8)
         status <- solve(my.lp)
       }
 
@@ -265,7 +265,7 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
       }
       else {
         coeffs <- c(lpSolveAPI::get.variables(my.lp)[5*N+p+1], lpSolveAPI::get.variables(my.lp)[1:p])
-        coeffs[abs(coeffs) < 5e-12] <- 0.0 # set coeffs below tolerance to 0 (may fix numeric issues)
+        coeffs[abs(coeffs) < 1e-10] <- 0.0 # set coeffs below tolerance to 0 (may fix numeric issues)
         coefficients_matrix[ , (i - 1) * length(lag_bounds) + j] <- coeffs  ## all the beta_j's
       }
 
