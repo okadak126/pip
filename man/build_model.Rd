@@ -20,13 +20,13 @@ build_model(
 \arguments{
 \item{data}{the dataset}
 
-\item{c0}{the c0 value}
+\item{c0}{the lower bound on remaining "fresh" inventory (used in optimization)}
 
 \item{history_window}{Number of days to look back}
 
 \item{penalty_factor}{penalty for shortage specified by doctors}
 
-\item{start}{the day the model is evaluated??. Default 10}
+\item{start}{the first day in the dataset that the model's predictions are evaluated}
 
 \item{l1_bounds}{vector containing the possible values of the l1 bound on coefs aside from
 days of the week and seven day moving average}

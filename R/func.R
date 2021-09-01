@@ -49,28 +49,35 @@ compute_prediction_statistics <- function(y, #actual usage arranged according to
 }
 
 #' Compute the Cross-Validation Loss for each hyperparameter
-#' @param w_cv a vector of waste determined by pip::compute_prediction_statistics
-#' @param r_cv a vector of remaining inventory determined by pip::compute_prediction_statistics
-#' @param s_cv a vector of inventory shortage as determined by pip::compute_prediction_statistics
+#' @param preds a vector of 3 day usage predictions
+#' @param y a vector of actual daily usage
+#' @param w a vector of waste determined by pip::compute_prediction_statistics
+#' @param r a vector of remaining inventory determined by pip::compute_prediction_statistics
+#' @param s a vector of inventory shortage as determined by pip::compute_prediction_statistics
 #' @param n number of days to consider (length of w_cv, s_cv)
 #' @param lo_inv_limit threshold for insufficient inventory below which to penalize (shortage risk)
 #' @param hi_inv_limit threshold for surfeit inventory above which to penalize (wastage risk)
-compute_cv_loss <- function(w_cv, r_cv, s_cv, n,
+compute_loss <- function(preds, y, w, r, s, n,
                             lo_inv_limit, hi_inv_limit) {
+  #print(w)
+  #print(r)
+  #print(s)
 
-  waste_loss <- apply(w_cv, 2, function(x) sum(x)) # average waste
-  invmax_loss <- apply(r_cv, 2, function(x) sum(pos(x - hi_inv_limit))) # penalty on surfeit
-  invmin_loss <- apply(r_cv, 2, function(x) sum(pos(lo_inv_limit - x))) # penalty on dearth
-  short_loss <- apply(s_cv, 2, function(x) sum(x)) # average shortage
+  waste_loss <- apply(w, 2, function(x) sum(x)) # average waste
+  invmax_loss <- apply(r, 2, function(x) sum(pos(x - hi_inv_limit))) # penalty on surfeit
+  invmin_loss <- apply(r, 2, function(x) sum(pos(lo_inv_limit - x))) # penalty on dearth
+  short_loss <- apply(s, 2, function(x) sum(x)) # average shortage
 
-  #pos_rmse <- apply(predictions_cv, 2, function(x) sqrt(sum((pos(t_true - x)^2)[-i_ignore]) / max(sum(t_true - x > 0), 1) ))
-  #neg_rmse <- apply(predictions_cv, 2, function(x) sqrt(sum((pos(t_true - x)^2)[-i_ignore]) / max(sum(t_true - x <= 0), 1) ))
+  t_true <- (dplyr::lead(y, n = 1L, default = 0) +
+    dplyr::lead(y, n = 2L, default = 0) +
+    dplyr::lead(y, n = 3L, default = 0))[-c((length(y) - 2):length(y))]
 
-  cv_loss <- ((waste_loss + invmax_loss) + (invmin_loss  + short_loss)) / n
-
-  # smooth the loss to avoid random dips
-  cv_loss[-c(1, length(cv_loss))] <- stats::filter(cv_loss, rep(1/3, 3))[-c(1, length(cv_loss))]
-  cv_loss
+  #pos_rmse <- apply(predictions_cv, 2, function(x) sqrt(sum((pos(t_true - x)^2)) / max(sum(t_true - x > 0), 1) ))
+  #neg_rmse <- apply(predictions_cv, 2, function(x) sqrt(sum((pos(t_true - x)^2)) / max(sum(t_true - x <= 0), 1) ))
+  # rmse <- neg_rmse <- apply(predictions_cv, 2, function(x) sqrt(sum((t_true - x)^2) / length(t_true)))
+  loss <- ((waste_loss + invmax_loss) + 5 * (invmin_loss + short_loss)) / n
+  #cv_loss <- short_loss / n
+  loss
 }
 
 #' Run cross-validation method
@@ -103,7 +110,6 @@ cross_validate <- function(data, pred_var_indices, resp_var_index, l1_bounds, la
 
   foldid <- create_folds(N, fold_size) # assign CV fold ids to each row
   foldid <- c(rep(0, seed_length), foldid) + 1 # Tack on the seed length (add 1 to prevent 0 ind)
-  print(foldid)
 
   preds_cv <- w_cv <- r_cv <- s_cv <- matrix(0,
                                              nrow = nrow(data),
@@ -114,25 +120,50 @@ cross_validate <- function(data, pred_var_indices, resp_var_index, l1_bounds, la
 
   for (k in seq_len(nfolds)) {
 
+
     # Solve for the coefficients and predict
     indices <- if (cv_type == "exp") { which(foldid < k + 1) } else { which(foldid != k + 1) }
 
-    for (l in seq_len(nhypers)) {
-      coefs <- single_lpSolve(data,
-                              l1_bounds = l1_bounds[(l - 1) / length(lag_bounds) + 1],
-                              lag_bounds = lag_bounds[(l - 1) %% length(lag_bounds) + 1],
-                              num_vars = length(pred_var_indices), # exclude date and response
-                              ind = indices,
-                              start = start,
-                              c = c0)
+    # Solve all at once.
+    coefs <- single_lpSolve(data,
+                            l1_bounds = l1_bounds,
+                            lag_bounds = lag_bounds,
+                            num_vars = length(pred_var_indices), # exclude date and response
+                            ind = indices,
+                            start = start,
+                            c = c0)
 
-      t_pred <- XX %*% coefs # usage for next 3 days (for each L and lag bound)
+    # compare with results from omitting the first L
+    #coefsv2 <- single_lpSolve(data,
+    #                         l1_bounds = l1_bounds[-1],
+    #                         lag_bounds = lag_bounds,
+    #                         num_vars = length(pred_var_indices), # exclude date and response
+    #                         ind = indices,
+    #                         start = start,
+    #                         c = c0)
+
+    #print(sprintf("diff in coef vectors is %f", sqrt(sum((coefs[,2] - coefsv2)^2))))
+    #print(coefs)
+    t_pred <- ceiling(XX %*% coefs) # usage for next 3 days (for each L and lag bound)
+
+
+
+    for (l in seq_len(nhypers)) {
+      # coefs <- single_lpSolve(data,
+      #                         l1_bounds = l1_bounds[(l - 1) / length(lag_bounds) + 1],
+      #                         lag_bounds = lag_bounds[(l - 1) %% length(lag_bounds) + 1],
+      #                         num_vars = length(pred_var_indices), # exclude date and response
+      #                         ind = indices,
+      #                         start = start,
+      #                         c = c0)
+
 
       # There are predictions for each l1_bound.
       # Compute waste, shortage, and remaining inventory for each prediction
 
+
       rr <- compute_prediction_statistics(y,
-                                          t_pred = t_pred,
+                                          t_pred = t_pred[, l],
                                           initial_expiry_data = c(0, 0),
                                           initial_collection_data = y[seq.int(start + 1L, start + 3L)],
                                           start = start)
@@ -140,19 +171,23 @@ cross_validate <- function(data, pred_var_indices, resp_var_index, l1_bounds, la
       w_cv[foldid == k + 1, l] <- rr$w[foldid == k + 1]
       r_cv[foldid == k + 1, l] <- rr$r[foldid == k + 1, 1] + rr$r[foldid == k + 1, 2]
       s_cv[foldid == k + 1, l] <- rr$s[foldid == k + 1]
-      preds_cv[foldid == k + 1, l] <- t_pred[foldid == k + 1]
+      preds_cv[foldid == k + 1, l] <- t_pred[foldid == k + 1, l]
     }
 
     if (show_progress) utils::setTxtProgressBar(pb, k)
   }
   if (show_progress) close(pb)
 
-  i_ignore <- c(seq_len(seed_length), (nrow(data) - 2):nrow(data))
+  initial_mask <- start + 5L # mask the first 6 days including the "start" day. This is so that
+                            # the initial values do not effect the waste or shortage results
 
-  list(w_cv = w_cv[-i_ignore, ],
-       r_cv = r_cv[-i_ignore, ],
-       s_cv = s_cv[-i_ignore, ],
-       predictions_cv = preds_cv[-i_ignore, ])
+  # Also drop the last 3 days, since the 3 day predictions cannot include the last 3 days in dataset.
+  i_ignore <- c(union(seq_len(initial_mask), seq_len(seed_length)), (nrow(data) - 2):nrow(data))
+
+  list(w_cv = w_cv[-i_ignore, , drop = FALSE],
+       r_cv = r_cv[-i_ignore, , drop = FALSE],
+       s_cv = s_cv[-i_ignore, , drop = FALSE],
+       predictions_cv = preds_cv[-i_ignore, , drop = FALSE])
 
 }
 
@@ -208,7 +243,7 @@ build_model <- function(data, ## The data set
   }
 
   ## Preprocess data
-  d <- data[seq.int(n - history_window + 1, n), ]
+  d <- data[seq.int(n - history_window + 1, n), , drop = FALSE]
 
   data_column_names <- names(data)
   number_of_columns <- ncol(data)
@@ -224,15 +259,20 @@ build_model <- function(data, ## The data set
 
   cv_result <- cross_validate(d, pred_var_indices, resp_var_index,
                               l1_bounds, lag_bounds, c0, start, seed_prop = 0.00,
-                              fold_size = 7L, cv_type = "loo", show_progress = TRUE)
+                              fold_size = 14L, cv_type = "loo", show_progress = TRUE)
   #cv_result <- cross_validate(d, pred_var_indices, resp_var_index,
   #                            l1_bounds, lag_bounds, c0, start, seed_prop = 0.44,
   #                            fold_size = 7L, cv_type = "exp", show_progress = TRUE)
 
-  cv_loss <- compute_cv_loss(cv_result$w_cv,
-                             cv_result$r_cv,
-                             cv_result$s_cv,
-                             n, penalty_factor, 60)
+
+  cv_loss <- compute_loss(cv_result$predictions_cv,
+                          d[, resp_var_index],
+                          cv_result$w_cv,
+                          cv_result$r_cv,
+                          cv_result$s_cv,
+                          n, penalty_factor, 60)
+
+  print(cv_loss)
 
   # ignore the first batch - there seems to be some instability in the first few solves.
   index <- which.min(cv_loss)
@@ -248,6 +288,8 @@ build_model <- function(data, ## The data set
                           start = start,
                           c = c0)
 
+  #print(coefs)
+
   names(coefs) <- c("intercept", predictor_names)
   list(
     l1_bound = l1_bound_best,
@@ -255,7 +297,6 @@ build_model <- function(data, ## The data set
     w = cv_result$w_cv[ , index],
     r = cv_result$r_cv[ , index],
     s = cv_result$s_cv[ , index],
-    cv_loss_order = order(order(cv_loss)), # return list of cv values for each hyperparameter to compare with eval
     coefs = coefs
   )
 }
@@ -277,7 +318,7 @@ predict_three_day_sum <- function(model, ## the trained model
     stop("New data set column names don't match training data set!")
   }
   new_data <- as.matrix(new_data[, predictor_names])
-  ceiling(sum(new_data %*% model$coefs[-1] ) + model$coefs[1])
+  ceiling(new_data %*% model$coefs[-1] + model$coefs[1])
 }
 
 #' Run a fit on a given dataset
@@ -328,11 +369,14 @@ evaluate_model <- function(data, ## The data set
   pred_var_indices <- setdiff(seq.int(2L, ncol(data)), c(resp_var_index, date_var_index))
 
   # Partition data into train and test sets
-  data_train <- data[seq.int(n - train_window - test_window + 1, n - test_window), ]
-  data_test <- data[seq.int(n - test_window + 1, n), ]
-  y_test <- data_test[, resp_var_index]
+  data_train <- data[seq.int(n - train_window - test_window + 1, n - test_window), , drop = FALSE]
+  data_test <- data[seq.int(n - test_window + 1, n), , drop = FALSE]
+  data_full <- data[seq.int(n - train_window - test_window + 1, n), , drop = FALSE]
 
-  train_prop <- nrow(data_train) / (nrow(data_test) + nrow(data_train))
+  y_test <- data_test[, resp_var_index]
+  y_full <- data_full[, resp_var_index]
+
+  train_prop <- nrow(data_train) / (nrow(data_full))
 
   # Run CV procedure to build model on training data and obtain the "best" hyperparams
   model <- build_model(data = data_train,
@@ -343,70 +387,66 @@ evaluate_model <- function(data, ## The data set
                       l1_bounds = l1_bounds,
                       lag_bounds = lag_bounds)
 
-  plot(x = l1_bounds, y = model$cv_loss_order[seq(from = 1, to = length(l1_bounds), by = length(lag_bounds))])
-  lines(x = l1_bounds, y = model$cv_loss_order[seq(from = 1, to = length(l1_bounds), by = length(lag_bounds))], type="l")
 
-  # Train the model on training window for all hyperparams and compute stats in test window
-  eval_result <- cross_validate(rbind(data_train, data_test), pred_var_indices, resp_var_index,
-                                l1_bounds, lag_bounds, c0, start, seed_prop = train_prop,
-                                fold_size = test_window, cv_type = "exp")
+  t_pred_cv <- predict_three_day_sum(model, data_full)
+
+  # Compute the prediction statistics for the best param
+  model_result <- compute_prediction_statistics(y = y_full,
+                                                t_pred = t_pred_cv,
+                                                initial_expiry_data = c(0, 0),
+                                                initial_collection_data = y_full[seq.int(start + 1L, start + 3L)],
+                                                start = start)
 
 
-  # Compute the true 3 day usage
-  t_true <- dplyr::lead(y_test, n = 1L, default = 0) +
-    dplyr::lead(y_test, n = 2L, default = 0) +
-    dplyr::lead(y_test, n = 3L, default = 0)
+  min_cv_loss <- compute_loss(matrix(t_pred_cv[seq.int(n - test_window + 1L, n - 3L)], ncol = 1),
+                          y_test,
+                          matrix(model_result$w[seq.int(n - test_window + 1L, n - 3L)], ncol = 1),
+                          matrix(model_result$r[seq.int(n - test_window + 1L, n - 3L), 1L] + model_result$r[seq.int(n - test_window + 1L, n - 3L), 2L], ncol = 1),
+                          matrix(model_result$s[seq.int(n - test_window + 1L, n - 3L)], ncol = 1),
+                          test_window,
+                          penalty_factor, 60)
 
-  i_ignore <- c((length(y_test) - 2):length(y_test))
+  nhypers <- length(l1_bounds) * length(lag_bounds)
+  eval_losses <- rep(0, nhypers)
+  X_full <- cbind(1, as.matrix(data_full[, pred_var_indices]))
 
-  avg_waste    <- apply(eval_result$w_cv, 2, function(x) sum(x))
-  avg_shortage <- apply(eval_result$s_cv, 2, function(x) sum(x))
-  rmse <- apply(eval_result$predictions_cv, 2, function(x) {
-    sqrt(sum(((t_true[-i_ignore] - x)^2)) / (test_window - 3))
-    })
+  for (l in seq_len(nhypers)) {
+      coefs <- single_lpSolve(data_train,
+                              l1_bounds = l1_bounds[(l - 1) / length(lag_bounds) + 1],
+                              lag_bounds = lag_bounds[(l - 1) %% length(lag_bounds) + 1],
+                              num_vars = length(pred_var_indices), # exclude date and response
+                              start = start,
+                              c = c0)
 
-  # Compute loss for each hyperparameter set for the test set
-  cv_loss <- compute_cv_loss(eval_result$w_cv,
-                             eval_result$r_cv,
-                             eval_result$s_cv,
-                             test_window,
-                             penalty_factor, 60)
+      t_pred_test <- ceiling(X_full %*% coefs) # usage for next 3 days (for each L and lag bound)
 
-  plot(x = l1_bounds, y = order(order(cv_loss))[seq(from = 1, to = length(l1_bounds), by = length(lag_bounds))])
-  lines(x = l1_bounds, y = order(order(cv_loss))[seq(from = 1, to = length(l1_bounds), by = length(lag_bounds))], type="l")
+      # There are predictions for each l1_bound.
+      # Compute waste, shortage, and remaining inventory for each prediction
 
-  min_cvloss_idx <- which.min(cv_loss)
 
-  top_idx <- 1 # best hyperparameter combo
-  min_short_idx <- which(avg_shortage == min(avg_shortage))
-  print(min_short_idx)
-  min_waste_idx <- intersect(which(avg_waste == min(avg_waste[min_short_idx])), min_short_idx)
-  print(min_waste_idx)
-  min_rmse_idx <- max(intersect(which(abs(rmse - min(rmse[min_waste_idx])) <= 1.0), min_waste_idx))
+      rr <- compute_prediction_statistics(y_full,
+                                          t_pred = t_pred_test,
+                                          initial_expiry_data = c(0, 0),
+                                          initial_collection_data = y_full[seq.int(start + 1L, start + 3L)],
+                                          start = start)
 
-  if (length(min_short_idx) < 2L) {
-    top_idx <- min_short_idx
-  } else if (length(min_waste_idx) < 2L) {
-    top_idx <- min_waste_idx
-  } else {
-    top_idx <- min_rmse_idx
+      eval_loss <- compute_loss(matrix(t_pred_test[seq.int(n - test_window + 1L, n - 3L)], ncol = 1L),
+                                  y_test,
+                                  matrix(rr$w[seq.int(n - test_window + 1L, n - 3L)], ncol = 1L),
+                                  matrix(rr$r[seq.int(n - test_window + 1L, n - 3L),1L] + rr$r[seq.int(n - test_window + 1L, n - 3L),2L], ncol = 1L),
+                                  matrix(rr$s[seq.int(n - test_window + 1L, n - 3L)], ncol = 1L),
+                                  test_window, penalty_factor, 60)
+
+      eval_losses[l] <- eval_loss
   }
 
-  l1_bound_train <- model$l1_bound
-  lag_bound_train <- model$lag_bound
-  l1_bound_test <- l1_bounds[(top_idx - 1) / length(lag_bounds) + 1]
-  lag_bound_test <- lag_bounds[(top_idx - 1) %% length(lag_bounds) + 1]
-  lag_offset <- if (length(which(lag_bounds == lag_bound_train)) > 0L) which(lag_bounds == lag_bound_train) else 1
-  model_idx <- (which(l1_bounds == l1_bound_train) - 1) * length(lag_bounds) + lag_offset
+  min_eval_loss <- min(eval_losses)
+  min_eval_loss_idx <- which.min(eval_losses)
 
-  l1_bound_cvloss <- l1_bounds[(min_cvloss_idx - 1) / length(lag_bounds) + 1]
-  lag_bound_cvloss <- lag_bounds[(min_cvloss_idx - 1) %% length(lag_bounds) + 1]
+  l1_bound_best_eval <- l1_bounds[(min_eval_loss_idx - 1) / length(lag_bounds) + 1]
+  lag_bound_best_eval <- lag_bounds[(min_eval_loss_idx - 1) %% length(lag_bounds) + 1]
 
-  print(sprintf("Distance between train and test loss vectors: %f", sqrt(sum((model$cv_loss_order - order(order(cv_loss)))^2) / length(cv_loss)) ))
-  print(sprintf("Model found best l1 bound was %d, and the best was %d", l1_bound_train, l1_bound_test))
-  print(sprintf("According to our CV loss function, the best l1_bound is %d with loss %f", l1_bound_cvloss, cv_loss[min_cvloss_idx]))
-  print(sprintf("Model's Waste: %f, Shortage: %f, RMSE: %f", avg_waste[model_idx], avg_shortage[model_idx], rmse[model_idx]))
+  print(sprintf("CV Found best L was %d, loss was %f", model$l1_bound, min_cv_loss))
+  print(sprintf("Test Set found best L was %d, loss was %f", l1_bound_best_eval, min_eval_loss))
 
-  print(sprintf("Best Waste: %f, Shortage: %f, RMSE: %f", avg_waste[top_idx], avg_shortage[top_idx], rmse[top_idx]))
-  #warning(sprintf("Model found best lag bound was %d, and it was actually %d", lag_bound_train, lag_bound_test))
 }

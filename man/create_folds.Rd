@@ -4,12 +4,12 @@
 \alias{create_folds}
 \title{Create folds for time series cross validation. Folds are continguous and sequential.}
 \usage{
-create_folds(n, nfold)
+create_folds(n, fold_len)
 }
 \arguments{
 \item{n}{number of rows of a matrix/data_frame to which ids are assigned}
 
-\item{nfold}{number of folds}
+\item{fold_len}{length of a fold}
 }
 \value{
 a vector of integers assigning values in 1 - nfold to each row.

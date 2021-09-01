@@ -37,12 +37,14 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
 
   pind <- p + ind # indices of waste for CV fold (minimize sum of these in obj func)
 
+
   ## y is usage, so y[i] is known usage on day i
   ## p betas, N ws, N r1s, N r2s, N xs, N ts, 1 intercept, p bounds
   N_var <- p + 5*N + 1 + p
 
   my.lp <- lpSolveAPI::make.lp(0,N_var)
-  lp.control(my.lp, timeout=20)
+  lp.control(my.lp,
+             timeout=30)
 
   obj_coefficients <- rep(0,N_var)
 
@@ -171,8 +173,7 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
     lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", 0)
   }
 
-  ## Only for cross-validation (Equation 17)
-  ##    if (doing_cv) {  ## Fix per Lexi's email
+  ## (Equation 17)
   for (i in ind) {
     if(i >= start+4){
       constraint_coefficients <- rep(0,N_var)
@@ -180,7 +181,6 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
       lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", c)
     }
   }
-  ##    }
 
   for (i in seq.int(start+4, N)) {
 
@@ -202,9 +202,6 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
 
     }
   }
-  ## End of Only for cross-validation
-
-  ##write.lp(my.lp,'model.lp',type='lp')
 
   for (j in 1:p) {
     ## constrain bounds (l1 constraints) KO added this
@@ -222,11 +219,35 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
   }
 
   lpSolveAPI::set.bounds(my.lp, lower = rep(-1000,ncol(my.lp)), upper = rep(1000,ncol(my.lp)))
+  #lpSolveAPI::set.type(my.lp, columns = (p+1):(p+5*N), type = c("integer"))
   lpSolveAPI::lp.control(my.lp,sense='min')
 
-  coefficients_matrix = matrix(0, ncol = length(l1_bounds) * length(lag_bounds), nrow = p+1)
+  coefficients_matrix <- matrix(0, ncol = length(l1_bounds) * length(lag_bounds), nrow = p+1)
+
+  # Save "state" of LP prior to solving with different l1_bounds
+  #lpSolveAPI::write.lp(my.lp, "lptest_prel1", type="lp")
+
+  pre_rhs <- lpSolveAPI::get.rhs(my.lp) # grab current RHS
+  # Obtain blank state of LP by having it solve all 0
+  lpSolveAPI::set.rhs(my.lp, rep(0, length(pre_rhs))) # set RHS to 0
+  lpSolveAPI::set.bounds(my.lp, lower = rep(0,ncol(my.lp)), upper = rep(0,ncol(my.lp))) # set bounds to 0
+  lpSolveAPI::set.objfn(my.lp, rep(1, N_var)) # reset objfn to sum of all vars (unique solution)
+  status_init <- solve(my.lp)
+  #print(sprintf("Initial Solve Status = %d", status_init))
+
+  obj_coefficients[pind] <- 1
+  lpSolveAPI::set.objfn(my.lp, obj_coefficients)
+  pre_basis <- lpSolveAPI::get.basis(my.lp)
+  lpSolveAPI::set.rhs(my.lp, pre_rhs)
+  lpSolveAPI::set.bounds(my.lp, lower = rep(-1000,ncol(my.lp)), upper = rep(1000,ncol(my.lp)))
+  #print("Ready for evaluation")
 
   for (i in seq_along(l1_bounds)) {
+    #print(paste0("solving for ", l1_bounds[i]))
+
+    # Reset basis
+    lpSolveAPI::set.basis(my.lp, pre_basis)
+
     ## Vars 1-8 are not constrained by the l1_bound
     constraint_coefficients <- rep(0,N_var)
     constraint_coefficients[(p + 5*N + 1 + 9):(p + 5*N + 1 + p)] <- 1
@@ -243,17 +264,21 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
         lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", lag_bounds[j])
       }
 
+      # Reset LP before it is solved
       status <- solve(my.lp)
+      #print(paste0("Solution Count = ",  lpSolveAPI::get.solutioncount(my.lp)))
 
       # If a timeout occurs, try to solve the problem with looser constraints
       if (status == 7 && !doing_cv) {
-        warning("A timeout occurred. Loosening L1 constraints", call. = FALSE)
-        lpSolveAPI::delete.constraint(my.lp, nConstraints) # delete the L1 constraint
-        # relax the L1 constraints aside from day of week and seven day moving average
-        constraint_coefficients <- rep(0,N_var)
-        constraint_coefficients[(p + 5*N + 1 + 9):(p + 5*N + 1 + p)] <- 1
-        lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", l1_bounds[i] + 8)
-        status <- solve(my.lp)
+        while (status == 7) {
+          warning("A timeout occurred. Loosening L1 constraints", call. = FALSE)
+          lpSolveAPI::delete.constraint(my.lp, nConstraints) # delete the L1 constraint
+          # relax the L1 constraints aside from day of week and seven day moving average
+          constraint_coefficients <- rep(0,N_var)
+          constraint_coefficients[(p + 5*N + 1 + 9):(p + 5*N + 1 + p)] <- 1
+          lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", l1_bounds[i] + 8)
+          status <- solve(my.lp)
+        }
       }
 
       if (doing_cv && (status == 5 || status == 7))  {
@@ -267,6 +292,7 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
         coeffs <- c(lpSolveAPI::get.variables(my.lp)[5*N+p+1], lpSolveAPI::get.variables(my.lp)[1:p])
         coeffs[abs(coeffs) < 1e-10] <- 0.0 # set coeffs below tolerance to 0 (may fix numeric issues)
         coefficients_matrix[ , (i - 1) * length(lag_bounds) + j] <- coeffs  ## all the beta_j's
+        #print(sprintf("Value of objective (waste) is %f", lpSolveAPI::get.objective(my.lp)))
       }
 
       # If a constraint was added, clean up the lag bound
@@ -279,6 +305,9 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
     lpSolveAPI::delete.constraint(my.lp, nConstraints)
 
   }
+
+  rm(my.lp)
+
   coefficients_matrix
 
 }

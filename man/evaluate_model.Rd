@@ -10,6 +10,7 @@ evaluate_model(
   train_window = 200,
   test_window = 7,
   penalty_factor = 15,
+  start = 10,
   l1_bounds = seq(from = 200, to = 0, by = -2),
   lag_bounds = c(NA),
   date_column = "day|date",
@@ -26,6 +27,8 @@ evaluate_model(
 \item{test_window}{Number of days on which to evaluate model}
 
 \item{penalty_factor}{penalty for shortage specified by doctors}
+
+\item{start}{the day you start evaluating the model (for CV)}
 
 \item{l1_bounds}{vector containing the possible values of the l1 bound on coefs aside from
 days of the week and seven day moving average}
