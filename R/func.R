@@ -54,14 +54,16 @@ compute_prediction_statistics <- function(y, #actual usage arranged according to
 #' @param w a vector of waste determined by pip::compute_prediction_statistics
 #' @param r a vector of remaining inventory determined by pip::compute_prediction_statistics
 #' @param s a vector of inventory shortage as determined by pip::compute_prediction_statistics
-#' @param n number of days to consider (length of w_cv, s_cv)
+#' @param penalty_factor factor to additionally penalize shortage terms over waste
 #' @param lo_inv_limit threshold for insufficient inventory below which to penalize (shortage risk)
 #' @param hi_inv_limit threshold for surfeit inventory above which to penalize (wastage risk)
-compute_loss <- function(preds, y, w, r, s, n,
-                            lo_inv_limit, hi_inv_limit) {
-  #print(w)
-  #print(r)
-  #print(s)
+#' @export
+compute_loss <- function(preds, y, w, r, s, penalty_factor,
+                         lo_inv_limit, hi_inv_limit) {
+
+  if (nrow(w) != nrow(s) || nrow(w) != nrow(r)) {
+    stop("Waste, inventory, and/or shortage vectors of different lengths.")
+  }
 
   waste_loss <- apply(w, 2, function(x) sum(x)) # average waste
   invmax_loss <- apply(r, 2, function(x) sum(pos(x - hi_inv_limit))) # penalty on surfeit
@@ -75,7 +77,7 @@ compute_loss <- function(preds, y, w, r, s, n,
   #pos_rmse <- apply(predictions_cv, 2, function(x) sqrt(sum((pos(t_true - x)^2)) / max(sum(t_true - x > 0), 1) ))
   #neg_rmse <- apply(predictions_cv, 2, function(x) sqrt(sum((pos(t_true - x)^2)) / max(sum(t_true - x <= 0), 1) ))
   # rmse <- neg_rmse <- apply(predictions_cv, 2, function(x) sqrt(sum((t_true - x)^2) / length(t_true)))
-  loss <- ((waste_loss + invmax_loss) + 5 * (invmin_loss + short_loss)) / n
+  loss <- ((waste_loss + invmax_loss) + penalty_factor * (invmin_loss + short_loss)) / nrow(w)
   #cv_loss <- short_loss / n
   loss
 }
@@ -144,24 +146,10 @@ cross_validate <- function(data, pred_var_indices, resp_var_index, l1_bounds, la
 
     #print(sprintf("diff in coef vectors is %f", sqrt(sum((coefs[,2] - coefsv2)^2))))
     #print(coefs)
+
     t_pred <- ceiling(XX %*% coefs) # usage for next 3 days (for each L and lag bound)
 
-
-
     for (l in seq_len(nhypers)) {
-      # coefs <- single_lpSolve(data,
-      #                         l1_bounds = l1_bounds[(l - 1) / length(lag_bounds) + 1],
-      #                         lag_bounds = lag_bounds[(l - 1) %% length(lag_bounds) + 1],
-      #                         num_vars = length(pred_var_indices), # exclude date and response
-      #                         ind = indices,
-      #                         start = start,
-      #                         c = c0)
-
-
-      # There are predictions for each l1_bound.
-      # Compute waste, shortage, and remaining inventory for each prediction
-
-
       rr <- compute_prediction_statistics(y,
                                           t_pred = t_pred[, l],
                                           initial_expiry_data = c(0, 0),
@@ -201,6 +189,8 @@ cross_validate <- function(data, pred_var_indices, resp_var_index, l1_bounds, la
 #' @param c0 the lower bound on remaining "fresh" inventory (used in optimization)
 #' @param history_window Number of days to look back
 #' @param penalty_factor penalty for shortage specified by doctors
+#' @param lo_inv_limit inventory count below which we penalize result (potential short)
+#' @param hi_inv_limit inventory count above which we penalize result (potential waste)
 #' @param start the first day in the dataset that the model's predictions are evaluated
 #' @param l1_bounds vector containing the possible values of the l1 bound on coefs aside from
 #'     days of the week and seven day moving average
@@ -227,7 +217,9 @@ cross_validate <- function(data, pred_var_indices, resp_var_index, l1_bounds, la
 build_model <- function(data, ## The data set
                         c0 = 15, ## the minimum number of units to keep on shelf (c)
                         history_window = 200, ## Number of days to look back
-                        penalty_factor = 15, ## the penalty factor for shortage, specified by doctor
+                        penalty_factor = 5, ## the penalty factor for shortage, specified by doctor
+                        lo_inv_limit = 30,  ## inventory count below which we penalize result
+                        hi_inv_limit = 60,  ## inventory count above which we penalize result
                         start = 10,   ## the day you start evaluating
                         l1_bounds = seq(from = 200, to = 0, by = -2), ## allowed values of the l1 bound
                         lag_bounds = c(NA), ## vector of bounds on coefficient for seven day moving average of daily use (NA = no bound)
@@ -235,7 +227,7 @@ build_model <- function(data, ## The data set
                         response_column = "plt_used",
                         show_progress = TRUE) {
 
-  ## Check that we have enough history!
+  ## Check that we have enough history
   n <- nrow(data)
   if (history_window > n) {
     stop(sprintf("build_model: history_window(%d) must be less than data rows(%d)",
@@ -270,7 +262,7 @@ build_model <- function(data, ## The data set
                           cv_result$w_cv,
                           cv_result$r_cv,
                           cv_result$s_cv,
-                          n, penalty_factor, 60)
+                          penalty_factor, lo_inv_limit, hi_inv_limit)
 
   print(cv_loss)
 
@@ -278,6 +270,7 @@ build_model <- function(data, ## The data set
   index <- which.min(cv_loss)
   l1_bound_best <- l1_bounds[(index - 1) / length(lag_bounds) + 1]
   lag_bound_best <- lag_bounds[(index - 1) %% length(lag_bounds) + 1]
+
   print(l1_bound_best)
   print(lag_bound_best)
 
@@ -288,7 +281,6 @@ build_model <- function(data, ## The data set
                           start = start,
                           c = c0)
 
-  #print(coefs)
 
   names(coefs) <- c("intercept", predictor_names)
   list(
@@ -348,7 +340,9 @@ evaluate_model <- function(data, ## The data set
                         c0 = 15, ## the minimum number of units to keep on shelf (c)
                         train_window = 200, ## Number of days to look back
                         test_window = 7, ## Number of days on which to evaluate model
-                        penalty_factor = 15, ## the penalty factor for shortage, specified by doctor
+                        penalty_factor = 5, ## the penalty factor for shortage, specified by doctor
+                        lo_inv_limit = 30,  ## inventory count below which we penalize result
+                        hi_inv_limit = 60,  ## inventory count above which we penalize result
                         start = 10, ## the day you start evaluating
                         l1_bounds = seq(from = 200, to = 0, by = -2), ## allowed values of the l1 bound
                         lag_bounds = c(NA),
@@ -403,8 +397,9 @@ evaluate_model <- function(data, ## The data set
                           matrix(model_result$w[seq.int(n - test_window + 1L, n - 3L)], ncol = 1),
                           matrix(model_result$r[seq.int(n - test_window + 1L, n - 3L), 1L] + model_result$r[seq.int(n - test_window + 1L, n - 3L), 2L], ncol = 1),
                           matrix(model_result$s[seq.int(n - test_window + 1L, n - 3L)], ncol = 1),
-                          test_window,
-                          penalty_factor, 60)
+                          penalty_factor,
+                          lo_inv_limit,
+                          hi_inv_limit)
 
   nhypers <- length(l1_bounds) * length(lag_bounds)
   eval_losses <- rep(0, nhypers)
@@ -431,11 +426,13 @@ evaluate_model <- function(data, ## The data set
                                           start = start)
 
       eval_loss <- compute_loss(matrix(t_pred_test[seq.int(n - test_window + 1L, n - 3L)], ncol = 1L),
-                                  y_test,
-                                  matrix(rr$w[seq.int(n - test_window + 1L, n - 3L)], ncol = 1L),
-                                  matrix(rr$r[seq.int(n - test_window + 1L, n - 3L),1L] + rr$r[seq.int(n - test_window + 1L, n - 3L),2L], ncol = 1L),
-                                  matrix(rr$s[seq.int(n - test_window + 1L, n - 3L)], ncol = 1L),
-                                  test_window, penalty_factor, 60)
+                                y_test,
+                                matrix(rr$w[seq.int(n - test_window + 1L, n - 3L)], ncol = 1L),
+                                matrix(rr$r[seq.int(n - test_window + 1L, n - 3L),1L] + rr$r[seq.int(n - test_window + 1L, n - 3L),2L], ncol = 1L),
+                                matrix(rr$s[seq.int(n - test_window + 1L, n - 3L)], ncol = 1L),
+                                penalty_factor,
+                                lo_inv_limit,
+                                hi_inv_limit)
 
       eval_losses[l] <- eval_loss
   }

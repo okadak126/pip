@@ -8,7 +8,9 @@ build_model(
   data,
   c0 = 15,
   history_window = 200,
-  penalty_factor = 15,
+  penalty_factor = 5,
+  lo_inv_limit = 30,
+  hi_inv_limit = 60,
   start = 10,
   l1_bounds = seq(from = 200, to = 0, by = -2),
   lag_bounds = c(NA),
@@ -25,6 +27,10 @@ build_model(
 \item{history_window}{Number of days to look back}
 
 \item{penalty_factor}{penalty for shortage specified by doctors}
+
+\item{lo_inv_limit}{inventory count below which we penalize result (potential short)}
+
+\item{hi_inv_limit}{inventory count above which we penalize result (potential waste)}
 
 \item{start}{the first day in the dataset that the model's predictions are evaluated}
 
