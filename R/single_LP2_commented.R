@@ -83,11 +83,6 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
   ## model evaluation begins on day start + 1 but collection
   ## begins start + 3
   ##
-  ## What is this 10 in the next below??
-  ## reply: our model started making prediction at day start+1,
-  ## thus we can only decide on the new units
-  ## come in at day start+4, the dates 1, 2, 3's new units are given by
-  ## x_{start+1} = y_{start+1}+c+buffer; x_{start+2} = y_{start+2};x_{start+3} = y_{start+3}
   rhs_offset <- c(c + buffer, 0, 0)
   for (i in seq_len(3L)) {
     constraint_coefficients <- rep(0,N_var)
@@ -95,14 +90,13 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
     lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "=", y[start+i] + rhs_offset[i])
   }
 
-  ## Set
-  ## Setting r1 to zero for start day?? Reply: yes.
+  ## Set r1 to zero for start day
   constraint_coefficients <- rep(0,N_var)
   constraint_coefficients[start+p+N] <- 1 ## r_{start}(1)
   lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "=",0)
 
-  ## Setting r2 to zero for start day??  Reply: yes. The initial
-  ## values for x_{start+1}, x_{start+2}, x_{start+3} have made sure
+  ## Setting r2 to zero for start day
+  ## The initial values for x_{start+1}, x_{start+2}, x_{start+3} have made sure
   ## the feasibility of this problem. The model training part here
   ## does not involve any initial information we input as a
   ## practitioner, including remaining bags, new bags will be arriving
@@ -128,6 +122,7 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
     ##r1_{i} - r2_{i-1}- r_{i-1} + w_{i} >= -y_{i}
     ##w_{i} + r2_{i} + r1_{i}- r1_{i-1}-r2_{i-1} - x_{i} == -y_{i}
     ## r2_{i} - x_{i} <= 0
+    # r1_{i} - r2_{i-1} <= 0 (KO added this)
 
     ## Eqn 14
     constraint_coefficients <- rep(0,N_var)
@@ -141,6 +136,12 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
     constraint_coefficients <- rep(0,N_var)
     constraint_coefficients[i+p+N] <- 1 # r_i(1) >= 0
     lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", 0)
+
+    ## KO Added this
+    constraint_coefficients <- rep(0, N_var)
+    constraint_coefficients[i+p+N] <- 1 #r_i(1)
+    constraint_coefficients[i+p+2*N-1] <- -1  #r_{i-1}(2)
+    lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", 0)
 
     ## Eqn 15
     constraint_coefficients <- rep(0,N_var)
@@ -163,13 +164,15 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
     lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", 0)
 
     ##wasted
-    ##w_{i} - r1_{i-1} >=  - y_{i}
+    ##w_{i} >= r1_{i-1} - y_{i}
     ## Eqn 12
     constraint_coefficients <- rep(0,N_var)
     constraint_coefficients[i+p] <- 1 ## w_i
     constraint_coefficients[i+p+N-1] <- -1 ## r_{i-1}(1)
     lpSolveAPI::add.constraint(my.lp, constraint_coefficients, ">=", -y[i])
     ##constraint_coefficients[i+p+N-1] = -1 ## repeated from 2 lines above
+
+    # w_i <= r_{i-1}(1)
     lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", 0)
   }
 
@@ -224,8 +227,6 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
 
   coefficients_matrix <- matrix(0, ncol = length(l1_bounds) * length(lag_bounds), nrow = p+1)
 
-  # Save "state" of LP prior to solving with different l1_bounds
-  #lpSolveAPI::write.lp(my.lp, "lptest_prel1", type="lp")
 
   pre_rhs <- lpSolveAPI::get.rhs(my.lp) # grab current RHS
   # Obtain blank state of LP by having it solve all 0
@@ -258,7 +259,7 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
     for (j in seq_along(lag_bounds)) {
 
       # Apply a constraint to the seven day moving average (lag) parameter if applicable
-      if (!is.na(lag_bounds[j])) {
+      if (lag_bounds[j] > 0) {
         constraint_coefficients <- rep(0,N_var)
         constraint_coefficients[p + 5*N + 1 + 8] <- 1
         lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", lag_bounds[j])
@@ -290,7 +291,7 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
       }
       else {
         coeffs <- c(lpSolveAPI::get.variables(my.lp)[5*N+p+1], lpSolveAPI::get.variables(my.lp)[1:p])
-        coeffs[abs(coeffs) < 1e-10] <- 0.0 # set coeffs below tolerance to 0 (may fix numeric issues)
+        coeffs[abs(coeffs) < 1e-10] <- 0.0 # set coeffs below tolerance to 0 (may fix some numeric issues)
         coefficients_matrix[ , (i - 1) * length(lag_bounds) + j] <- coeffs  ## all the beta_j's
         #print(sprintf("Value of objective (waste) is %f", lpSolveAPI::get.objective(my.lp)))
       }
