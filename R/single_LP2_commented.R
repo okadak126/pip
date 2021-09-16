@@ -27,6 +27,7 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
   doing_cv <- !is.null(ind)
   ## ind and l1_bounds must be sorted (ascending and descending, respectively)
 
+  # Assumes that date is the first column and the output (usage) is the last column.
   XX <- d[, 2:(num_vars + 1)]
   y <- d[, (num_vars + 2)]
 
