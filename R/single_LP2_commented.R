@@ -45,7 +45,7 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
 
   my.lp <- lpSolveAPI::make.lp(0,N_var)
   lp.control(my.lp,
-             timeout=30)
+             timeout=45) # Should be included in config
 
   obj_coefficients <- rep(0,N_var)
 
