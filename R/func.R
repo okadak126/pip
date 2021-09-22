@@ -52,22 +52,23 @@ compute_prediction_statistics <- function(y, #actual usage arranged according to
 #' @param preds a vector of 3 day usage predictions
 #' @param y a vector of actual daily usage
 #' @param w a vector of waste determined by pip::compute_prediction_statistics
-#' @param r a vector of remaining inventory determined by pip::compute_prediction_statistics
+#' @param r1 a vector of remaining inventory determined by pip::compute_prediction_statistics
+#' @param r2 a vector of remaining inventory determined by pip::compute_prediction_statistics
 #' @param s a vector of inventory shortage as determined by pip::compute_prediction_statistics
 #' @param penalty_factor factor to additionally penalize shortage terms over waste
 #' @param lo_inv_limit threshold for insufficient inventory below which to penalize (shortage risk)
 #' @param hi_inv_limit threshold for surfeit inventory above which to penalize (wastage risk)
 #' @export
-compute_loss <- function(preds, y, w, r, s, penalty_factor,
+compute_loss <- function(preds, y, w, r1, r2, s, penalty_factor,
                          lo_inv_limit, hi_inv_limit) {
 
-  if (nrow(w) != nrow(s) || nrow(w) != nrow(r)) {
+  if (nrow(w) != nrow(s) || nrow(w) != nrow(r1) || nrow(w) != nrow(r2)) {
     stop("Waste, inventory, and/or shortage vectors of different lengths.")
   }
 
   waste_loss <- apply(w, 2, function(x) sum(x)) # average waste
-  invmax_loss <- apply(r, 2, function(x) sum(pos(x - hi_inv_limit))) # penalty on surfeit
-  invmin_loss <- apply(r, 2, function(x) sum(pos(lo_inv_limit - x))) # penalty on dearth
+  invmax_loss <- apply(r1 + r2, 2, function(x) sum(pos(x - hi_inv_limit))) # penalty on surfeit
+  invmin_loss <- apply(r2 + r2, 2, function(x) sum(pos(lo_inv_limit - x))) # penalty on dearth
   short_loss <- apply(s, 2, function(x) sum(x)) # average shortage
 
   t_true <- (dplyr::lead(y, n = 1L, default = 0) +
@@ -113,7 +114,7 @@ cross_validate <- function(data, pred_var_indices, resp_var_index, l1_bounds, la
   foldid <- create_folds(N, fold_size) # assign CV fold ids to each row
   foldid <- c(rep(0, seed_length), foldid) + 1 # Tack on the seed length (add 1 to prevent 0 ind)
 
-  preds_cv <- w_cv <- r_cv <- s_cv <- matrix(0,
+  preds_cv <- w_cv <- r2_cv <- r1_cv <- s_cv <- matrix(0,
                                              nrow = nrow(data),
                                              ncol = nhypers)
 
@@ -157,7 +158,8 @@ cross_validate <- function(data, pred_var_indices, resp_var_index, l1_bounds, la
                                           start = start)
 
       w_cv[foldid == k + 1, l] <- rr$w[foldid == k + 1]
-      r_cv[foldid == k + 1, l] <- rr$r[foldid == k + 1, 1] + rr$r[foldid == k + 1, 2]
+      r1_cv[foldid == k + 1, l] <- rr$r[foldid == k + 1, 1]
+      r2_cv[foldid == k + 1, l] <- rr$r[foldid == k + 1, 2]
       s_cv[foldid == k + 1, l] <- rr$s[foldid == k + 1]
       preds_cv[foldid == k + 1, l] <- t_pred[foldid == k + 1, l]
     }
@@ -173,7 +175,8 @@ cross_validate <- function(data, pred_var_indices, resp_var_index, l1_bounds, la
   i_ignore <- c(union(seq_len(initial_mask), seq_len(seed_length)), (nrow(data) - 2):nrow(data))
 
   list(w_cv = w_cv[-i_ignore, , drop = FALSE],
-       r_cv = r_cv[-i_ignore, , drop = FALSE],
+       r1_cv = r1_cv[-i_ignore, , drop = FALSE],
+       r2_cv = r2_cv[-i_ignore, , drop = FALSE],
        s_cv = s_cv[-i_ignore, , drop = FALSE],
        predictions_cv = preds_cv[-i_ignore, , drop = FALSE])
 
@@ -260,7 +263,8 @@ build_model <- function(data, ## The data set
   cv_loss <- compute_loss(cv_result$predictions_cv,
                           d[, resp_var_index],
                           cv_result$w_cv,
-                          cv_result$r_cv,
+                          cv_result$r1_cv,
+                          cv_result$r2_cv,
                           cv_result$s_cv,
                           penalty_factor, lo_inv_limit, hi_inv_limit)
 
@@ -287,7 +291,8 @@ build_model <- function(data, ## The data set
     l1_bound = l1_bound_best,
     lag_bound = lag_bound_best,
     w = cv_result$w_cv[ , index],
-    r = cv_result$r_cv[ , index],
+    r1 = cv_result$r1_cv[ , index],
+    r2 = cv_result$r2_cv[ , index],
     s = cv_result$s_cv[ , index],
     coefs = coefs
   )
@@ -395,7 +400,8 @@ evaluate_model <- function(data, ## The data set
   min_cv_loss <- compute_loss(matrix(t_pred_cv[seq.int(n - test_window + 1L, n - 3L)], ncol = 1),
                           y_test,
                           matrix(model_result$w[seq.int(n - test_window + 1L, n - 3L)], ncol = 1),
-                          matrix(model_result$r[seq.int(n - test_window + 1L, n - 3L), 1L] + model_result$r[seq.int(n - test_window + 1L, n - 3L), 2L], ncol = 1),
+                          matrix(model_result$r[seq.int(n - test_window + 1L, n - 3L), 1L], ncol = 1),
+                          matrix(model_result$r[seq.int(n - test_window + 1L, n - 3L), 2L], ncol = 1),
                           matrix(model_result$s[seq.int(n - test_window + 1L, n - 3L)], ncol = 1),
                           penalty_factor,
                           lo_inv_limit,
@@ -428,7 +434,8 @@ evaluate_model <- function(data, ## The data set
       eval_loss <- compute_loss(matrix(t_pred_test[seq.int(n - test_window + 1L, n - 3L)], ncol = 1L),
                                 y_test,
                                 matrix(rr$w[seq.int(n - test_window + 1L, n - 3L)], ncol = 1L),
-                                matrix(rr$r[seq.int(n - test_window + 1L, n - 3L),1L] + rr$r[seq.int(n - test_window + 1L, n - 3L),2L], ncol = 1L),
+                                matrix(rr$r[seq.int(n - test_window + 1L, n - 3L),1L], ncol = 1L),
+                                matrix(rr$r[seq.int(n - test_window + 1L, n - 3L),2L], ncol = 1L),
                                 matrix(rr$s[seq.int(n - test_window + 1L, n - 3L)], ncol = 1L),
                                 penalty_factor,
                                 lo_inv_limit,
