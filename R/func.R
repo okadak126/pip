@@ -43,7 +43,7 @@ compute_prediction_statistics <- function(y, #actual usage arranged according to
       s[i] <- pos(y[i] - r[i - 1, 1] - r[i - 1, 2] - x[i])
       r[i, 2] <- pos(x[i] - pos(y[i] - r[i - 1, 1] - r[i - 1, 2]))
     }
-    x[i + 3] <- max(floor(pos(t_pred[i] - x[i + 1] - x[i + 2] - r[i, 1] - r[i, 2] + 1)))
+    x[i + 3] <- floor(pos(t_pred[i] - x[i + 1] - x[i + 2] - r[i, 1] - r[i, 2] + 1))
   }
   return(list(x = x, r = r, w = w, s = s))
 }
@@ -67,18 +67,22 @@ compute_loss <- function(preds, y, w, r1, r2, s, penalty_factor,
   }
 
   waste_loss <- apply(w, 2, function(x) sum(x)) # average waste
-  invmax_loss <- apply(r1 + r2, 2, function(x) sum(pos(x - hi_inv_limit))) # penalty on surfeit
-  invmin_loss <- apply(r2 + r2, 2, function(x) sum(pos(lo_inv_limit - x))) # penalty on dearth
-  short_loss <- apply(s, 2, function(x) sum(x)) # average shortage
+  invmax_loss <- apply(r1 + r2, 2, function(x) sum(pos(x - hi_inv_limit))) # penalty on overall excess
+  r1_loss <- apply(r1, 2, function(x) sum(x^2)) # penalty on r1 excess
+  r2_loss <- apply(r2, 2, function(x) sum(pos(lo_inv_limit - x)^2)) # penalty on overall dearth
+  invmin_loss <- apply(r1 + r2, 2, function(x) sum(pos(lo_inv_limit - x))) # penalty on overall dearth
+  short_loss <- apply(s, 2, function(x) sum(x^2)) # average shortage
 
   t_true <- (dplyr::lead(y, n = 1L, default = 0) +
     dplyr::lead(y, n = 2L, default = 0) +
     dplyr::lead(y, n = 3L, default = 0))[-c((length(y) - 2):length(y))]
 
-  #pos_rmse <- apply(predictions_cv, 2, function(x) sqrt(sum((pos(t_true - x)^2)) / max(sum(t_true - x > 0), 1) ))
-  #neg_rmse <- apply(predictions_cv, 2, function(x) sqrt(sum((pos(t_true - x)^2)) / max(sum(t_true - x <= 0), 1) ))
-  # rmse <- neg_rmse <- apply(predictions_cv, 2, function(x) sqrt(sum((t_true - x)^2) / length(t_true)))
-  loss <- ((waste_loss + invmax_loss) + penalty_factor * (invmin_loss + short_loss)) / nrow(w)
+  pos_ss <- apply(preds, 2, function(x) sum((pos(x - t_true)^2) ))
+  neg_ss <- apply(preds, 2, function(x) sum((pos(t_true - x)^2) ))
+  #rmse <- neg_rmse <- apply(predictions_cv, 2, function(x) sqrt(sum((t_true - x)^2) / length(t_true)))
+  #loss <- ((waste_loss + invmax_loss) + (invmin_loss + short_loss) * penalty_factor) / nrow(w)
+  #loss <- (pos_ss + neg_ss * penalty_factor) / (1 + penalty_factor)
+  loss <- (r1_loss + r2_loss * penalty_factor) / (1 + penalty_factor)
   #cv_loss <- short_loss / n
   loss
 }
@@ -261,14 +265,14 @@ build_model <- function(data, ## The data set
 
 
   cv_loss <- compute_loss(cv_result$predictions_cv,
-                          d[, resp_var_index],
+                          d[1:(nrow(d) - start - 5), resp_var_index],
                           cv_result$w_cv,
                           cv_result$r1_cv,
                           cv_result$r2_cv,
                           cv_result$s_cv,
                           penalty_factor, lo_inv_limit, hi_inv_limit)
 
-  print(cv_loss)
+  plot(x = l1_bounds, y = cv_loss)
 
   # ignore the first batch - there seems to be some instability in the first few solves.
   index <- which.min(cv_loss)

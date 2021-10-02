@@ -25,6 +25,7 @@
 #'
 single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 30, buffer = 10, ind = NULL) {
   doing_cv <- !is.null(ind)
+
   ## ind and l1_bounds must be sorted (ascending and descending, respectively)
 
   # Assumes that date is the first column and the output (usage) is the last column.
@@ -36,8 +37,8 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
 
   if (!doing_cv) ind <- 1:N
 
-  pind <- p + ind # indices of waste for CV fold (minimize sum of these in obj func)
-
+  # Altered to penalize r1
+  pind <- (p + N) + ind # indices of waste for CV fold (minimize sum of these in obj func)
 
   ## y is usage, so y[i] is known usage on day i
   ## p betas, N ws, N r1s, N r2s, N xs, N ts, 1 intercept, p bounds
@@ -49,7 +50,7 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
 
   obj_coefficients <- rep(0,N_var)
 
-  ## Set coefs of w to be 1's (eq 9)
+  ## Set coefs of w and r1 to be 1's (eq 9)
   obj_coefficients[pind] <- 1
   lpSolveAPI::set.objfn(my.lp,obj_coefficients)
 
