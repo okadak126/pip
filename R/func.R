@@ -81,8 +81,8 @@ compute_loss <- function(preds, y, w, r1, r2, s, penalty_factor,
   neg_ss <- apply(preds, 2, function(x) sum((pos(t_true - x)^2) ))
   #rmse <- neg_rmse <- apply(predictions_cv, 2, function(x) sqrt(sum((t_true - x)^2) / length(t_true)))
   #loss <- ((waste_loss + invmax_loss) + (invmin_loss + short_loss) * penalty_factor) / nrow(w)
-  #loss <- (pos_ss + neg_ss * penalty_factor) / (1 + penalty_factor)
-  loss <- (r1_loss + r2_loss * penalty_factor) / (1 + penalty_factor)
+  loss <- (pos_ss + r1_loss +  2 * neg_ss * penalty_factor) / (1 + penalty_factor)
+  #loss <- (r1_loss + r2_loss * penalty_factor) / (1 + penalty_factor)
   #cv_loss <- short_loss / n
   loss
 }
@@ -178,11 +178,11 @@ cross_validate <- function(data, pred_var_indices, resp_var_index, l1_bounds, la
   # Also drop the last 3 days, since the 3 day predictions cannot include the last 3 days in dataset.
   i_ignore <- c(union(seq_len(initial_mask), seq_len(seed_length)), (nrow(data) - 2):nrow(data))
 
-  list(w_cv = w_cv[-i_ignore, , drop = FALSE],
-       r1_cv = r1_cv[-i_ignore, , drop = FALSE],
-       r2_cv = r2_cv[-i_ignore, , drop = FALSE],
-       s_cv = s_cv[-i_ignore, , drop = FALSE],
-       predictions_cv = preds_cv[-i_ignore, , drop = FALSE])
+  list(w = w_cv[-i_ignore, , drop = FALSE],
+       r1 = r1_cv[-i_ignore, , drop = FALSE],
+       r2 = r2_cv[-i_ignore, , drop = FALSE],
+       s = s_cv[-i_ignore, , drop = FALSE],
+       preds = preds_cv[-i_ignore, , drop = FALSE])
 
 }
 
@@ -232,7 +232,8 @@ build_model <- function(data, ## The data set
                         lag_bounds = c(NA), ## vector of bounds on coefficient for seven day moving average of daily use (NA = no bound)
                         date_column = "day|date",  ## we assume column is named date or day by default
                         response_column = "plt_used",
-                        show_progress = TRUE) {
+                        show_progress = TRUE,
+                        plot_losses = TRUE) {
 
   ## Check that we have enough history
   n <- nrow(data)
@@ -243,19 +244,20 @@ build_model <- function(data, ## The data set
 
   ## Preprocess data
   d <- data[seq.int(n - history_window + 1, n), , drop = FALSE]
-
   data_column_names <- names(data)
-  number_of_columns <- ncol(data)
-  print(paste0("Number of features:", number_of_columns - 2)) # This is the number of features used
+  print(paste0("Number of features:", ncol(data) - 2)) # This is the number of features used
 
+  ## Find and exclude the date and response columns from the dataset
   resp_var_index <- grep(response_column, data_column_names)
   date_var_index <- grep(date_column, data_column_names)
   if (length(resp_var_index) < 1 || length(date_var_index) < 1) {
     stop("Response and/or date columns not found!")
   }
-  pred_var_indices <- setdiff(seq.int(2L, number_of_columns), c(resp_var_index, date_var_index))
+  pred_var_indices <- setdiff(seq.int(2L, ncol(data)), c(resp_var_index, date_var_index))
   predictor_names <- data_column_names[pred_var_indices]
 
+  ## Obtain predictions, waste, loss, remaining inventory, and shortage from
+  ## best hyperparameter via cross-validation
   cv_result <- cross_validate(d, pred_var_indices, resp_var_index,
                               l1_bounds, lag_bounds, c0, start, seed_prop = 0.00,
                               fold_size = 14L, cv_type = "loo", show_progress = TRUE)
@@ -264,44 +266,47 @@ build_model <- function(data, ## The data set
   #                            fold_size = 7L, cv_type = "exp", show_progress = TRUE)
 
 
-  cv_loss <- compute_loss(cv_result$predictions_cv,
+  ## Calculate losses for each of the CV results and obtain coefficients from best loss
+  cv_loss <- compute_loss(cv_result$preds,
                           d[1:(nrow(d) - start - 5), resp_var_index],
-                          cv_result$w_cv,
-                          cv_result$r1_cv,
-                          cv_result$r2_cv,
-                          cv_result$s_cv,
+                          cv_result$w,
+                          cv_result$r1,
+                          cv_result$r2,
+                          cv_result$s,
                           penalty_factor, lo_inv_limit, hi_inv_limit)
 
-  plot(x = l1_bounds, y = cv_loss)
 
-  # ignore the first batch - there seems to be some instability in the first few solves.
   index <- which.min(cv_loss)
-  l1_bound_best <- l1_bounds[(index - 1) / length(lag_bounds) + 1]
-  lag_bound_best <- lag_bounds[(index - 1) %% length(lag_bounds) + 1]
+  l1_bound_min <- l1_bounds[(index - 1) / length(lag_bounds) + 1]
+  lag_bound_min <- lag_bounds[(index - 1) %% length(lag_bounds) + 1]
 
-  print(l1_bound_best)
-  print(lag_bound_best)
+  if (plot_losses) {
+    plot(x = l1_bounds, y = cv_loss)
+    print(l1_bound_min)
+    print(lag_bound_min)
+  }
 
+  ### Solve using hyperparameter value with least loss
   coefs <- single_lpSolve(d,
-                          l1_bounds = l1_bound_best,
-                          lag_bounds = lag_bound_best,
+                          l1_bounds = l1_bound_min,
+                          lag_bounds = lag_bound_min,
                           num_vars = length(pred_var_indices),
                           start = start,
                           c = c0)
 
 
+  # Return coefficients and other features of the CV result
   names(coefs) <- c("intercept", predictor_names)
   list(
-    l1_bound = l1_bound_best,
-    lag_bound = lag_bound_best,
-    w = cv_result$w_cv[ , index],
-    r1 = cv_result$r1_cv[ , index],
-    r2 = cv_result$r2_cv[ , index],
-    s = cv_result$s_cv[ , index],
+    l1_bound = l1_bound_min,
+    lag_bound = lag_bound_min,
+    w = cv_result$w[ , index],
+    r1 = cv_result$r1[ , index],
+    r2 = cv_result$r2[ , index],
+    s = cv_result$s[ , index],
     coefs = coefs
   )
 }
-
 
 #'
 #' Predict the next three day sum and units to order if available
