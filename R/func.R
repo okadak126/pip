@@ -29,10 +29,10 @@ compute_prediction_statistics <- function(y, #actual usage arranged according to
   r <- matrix(0, nrow = N , ncol = 2)
   x <- numeric(N + 3)
   w <- s <- numeric(N)
-  x[seq.int(start, start + 2)] <- initial_collection_data
+  x[seq.int(start + 1, start + 3)] <- initial_collection_data
 
-  for (i in seq.int(start, N)) {
-    if(i == start){
+  for (i in seq.int(start + 1, N)) {
+    if(i == start + 1){
       w[i] <- pos(initial_expiry_data[1] - y[i])
       r[i, 1] <- pos(initial_expiry_data[1] + initial_expiry_data[2] - y[i] - w[i])
       s[i] <- pos(y[i] - initial_expiry_data[1] - initial_expiry_data[ 2] - x[i])
@@ -71,17 +71,17 @@ compute_loss <- function(preds, y, w, r1, r2, s, penalty_factor,
   r1_loss <- apply(r1, 2, function(x) sum(x^2)) # penalty on r1 excess
   r2_loss <- apply(r2, 2, function(x) sum(pos(lo_inv_limit - x)^2)) # penalty on overall dearth
   invmin_loss <- apply(r1 + r2, 2, function(x) sum(pos(lo_inv_limit - x))) # penalty on overall dearth
-  short_loss <- apply(s, 2, function(x) sum(x^2)) # average shortage
+  short_loss <- apply(s, 2, function(x) sum(x)) # average shortage
 
   t_true <- (dplyr::lead(y, n = 1L, default = 0) +
     dplyr::lead(y, n = 2L, default = 0) +
     dplyr::lead(y, n = 3L, default = 0))[-c((length(y) - 2):length(y))]
 
-  pos_ss <- apply(preds, 2, function(x) sum((pos(x - t_true)^2) ))
-  neg_ss <- apply(preds, 2, function(x) sum((pos(t_true - x)^2) ))
+  pos_ss <- apply(preds, 2, function(x) sum((pos(x - t_true - 15)^2) ))
+  neg_ss <- apply(preds, 2, function(x) sum((pos(t_true + 15 - x)^2) ))
   #rmse <- neg_rmse <- apply(predictions_cv, 2, function(x) sqrt(sum((t_true - x)^2) / length(t_true)))
   #loss <- ((waste_loss + invmax_loss) + (invmin_loss + short_loss) * penalty_factor) / nrow(w)
-  loss <- (pos_ss + r1_loss +  2 * neg_ss * penalty_factor) / (1 + penalty_factor)
+  loss <- ( pos_ss + (neg_ss) * penalty_factor) / nrow(w)
   #loss <- (r1_loss + r2_loss * penalty_factor) / (1 + penalty_factor)
   #cv_loss <- short_loss / n
   loss
@@ -132,11 +132,11 @@ cross_validate <- function(data, pred_var_indices, resp_var_index, l1_bounds, la
     indices <- if (cv_type == "exp") { which(foldid < k + 1) } else { which(foldid != k + 1) }
 
     # Solve all at once.
-    coefs <- single_lpSolve(data,
+    coefs <- single_lpSolve(data, #[indices, ],
                             l1_bounds = l1_bounds,
                             lag_bounds = lag_bounds,
                             num_vars = length(pred_var_indices), # exclude date and response
-                            ind = indices,
+                            ind = indices, #1:nrow(data[indices, ]),
                             start = start,
                             c = c0)
 
@@ -148,9 +148,6 @@ cross_validate <- function(data, pred_var_indices, resp_var_index, l1_bounds, la
     #                         ind = indices,
     #                         start = start,
     #                         c = c0)
-
-    #print(sprintf("diff in coef vectors is %f", sqrt(sum((coefs[,2] - coefsv2)^2))))
-    #print(coefs)
 
     t_pred <- ceiling(XX %*% coefs) # usage for next 3 days (for each L and lag bound)
 
@@ -229,7 +226,7 @@ build_model <- function(data, ## The data set
                         hi_inv_limit = 60,  ## inventory count above which we penalize result
                         start = 10,   ## the day you start evaluating
                         l1_bounds = seq(from = 200, to = 0, by = -2), ## allowed values of the l1 bound
-                        lag_bounds = c(NA), ## vector of bounds on coefficient for seven day moving average of daily use (NA = no bound)
+                        lag_bounds = -1, ## vector of bounds on coefficient for seven day moving average of daily use (NA = no bound)
                         date_column = "day|date",  ## we assume column is named date or day by default
                         response_column = "plt_used",
                         show_progress = TRUE,
@@ -281,7 +278,7 @@ build_model <- function(data, ## The data set
   lag_bound_min <- lag_bounds[(index - 1) %% length(lag_bounds) + 1]
 
   if (plot_losses) {
-    plot(x = l1_bounds, y = cv_loss)
+    plot(x = l1_bounds, y = cv_loss[seq(from = 1, to = length(cv_loss), by = 1)])
     print(l1_bound_min)
     print(lag_bound_min)
   }

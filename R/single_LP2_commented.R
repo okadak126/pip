@@ -38,7 +38,8 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
   if (!doing_cv) ind <- 1:N
 
   # Altered to penalize r1
-  pind <- (p + N) + ind # indices of waste for CV fold (minimize sum of these in obj func)
+  pind_r1 <- (p + N) + ind # indices of waste for CV fold (minimize sum of these in obj func)
+  pind_w  <- p + ind
 
   ## y is usage, so y[i] is known usage on day i
   ## p betas, N ws, N r1s, N r2s, N xs, N ts, 1 intercept, p bounds
@@ -51,7 +52,8 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
   obj_coefficients <- rep(0,N_var)
 
   ## Set coefs of w and r1 to be 1's (eq 9)
-  obj_coefficients[pind] <- 1
+  obj_coefficients[pind_r1] <- 1
+  obj_coefficients[pind_w] <- 40
   lpSolveAPI::set.objfn(my.lp,obj_coefficients)
 
   ## Constrain sum of day of week coefs of beta to be zero??  Why?
@@ -145,7 +147,7 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
     constraint_coefficients[i+p+2*N-1] <- -1  #r_{i-1}(2)
     lpSolveAPI::add.constraint(my.lp, constraint_coefficients, "<=", 0)
 
-    ## Eqn 15
+    ## Eqn 15 (KO corrected)
     constraint_coefficients <- rep(0,N_var)
     constraint_coefficients[i+p+N] <- 1 ## r_i(1)
     constraint_coefficients[i+p+N*2] <- 1 ## r_i(2)
@@ -238,7 +240,8 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars, start = 10, c = 3
   status_init <- solve(my.lp)
   #print(sprintf("Initial Solve Status = %d", status_init))
 
-  obj_coefficients[pind] <- 1
+  obj_coefficients[pind_r1] <- 1
+  obj_coefficients[pind_w] <- 40
   lpSolveAPI::set.objfn(my.lp, obj_coefficients)
   pre_basis <- lpSolveAPI::get.basis(my.lp)
   lpSolveAPI::set.rhs(my.lp, pre_rhs)
