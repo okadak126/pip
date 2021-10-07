@@ -12,6 +12,7 @@ cross_validate(
   lag_bounds,
   c0,
   start,
+  penalty_factor,
   seed_prop,
   fold_size,
   cv_type = "loo",
@@ -34,6 +35,8 @@ days of the week and seven day moving average}
 \item{c0}{the lower bound on remaining "fresh" inventory (used in optimization)}
 
 \item{start}{the first day in the dataset that the model's predictions are evaluated}
+
+\item{penalty_factor}{how much we penalize shortage over waste}
 
 \item{seed_prop}{the proportion of seed data (treated as fold 1 for training)}
 

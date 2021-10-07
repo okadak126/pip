@@ -9,7 +9,8 @@ compute_prediction_statistics(
   t_pred,
   initial_expiry_data = c(0, 0),
   initial_collection_data = c(60, 60, 60),
-  start = 10
+  start = 10,
+  c = 30
 )
 }
 \arguments{
@@ -29,6 +30,9 @@ default invocation the shelf storage (initial_collection_data)
 was 60, 60, 60, on days 10, 11, and 12. So the evaluation of
 the model begins at day 11 but the decision to order collection
 starts on day 13.}
+
+\item{c}{the ideal minimum number of fresh units remaining at the end
+of the day. this is also the minimum number that should be collected}
 }
 \value{
 a list with four components, \code{x} is the number of

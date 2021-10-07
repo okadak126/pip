@@ -13,10 +13,11 @@ build_model(
   hi_inv_limit = 60,
   start = 10,
   l1_bounds = seq(from = 200, to = 0, by = -2),
-  lag_bounds = c(NA),
+  lag_bounds = -1,
   date_column = "day|date",
   response_column = "plt_used",
-  show_progress = TRUE
+  show_progress = TRUE,
+  plot_losses = TRUE
 )
 }
 \arguments{

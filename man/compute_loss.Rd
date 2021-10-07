@@ -4,7 +4,17 @@
 \alias{compute_loss}
 \title{Compute the Cross-Validation Loss for each hyperparameter}
 \usage{
-compute_loss(preds, y, w, r, s, penalty_factor, lo_inv_limit, hi_inv_limit)
+compute_loss(
+  preds,
+  y,
+  w,
+  r1,
+  r2,
+  s,
+  penalty_factor,
+  lo_inv_limit,
+  hi_inv_limit
+)
 }
 \arguments{
 \item{preds}{a vector of 3 day usage predictions}
@@ -13,7 +23,9 @@ compute_loss(preds, y, w, r, s, penalty_factor, lo_inv_limit, hi_inv_limit)
 
 \item{w}{a vector of waste determined by pip::compute_prediction_statistics}
 
-\item{r}{a vector of remaining inventory determined by pip::compute_prediction_statistics}
+\item{r1}{a vector of remaining inventory determined by pip::compute_prediction_statistics}
+
+\item{r2}{a vector of remaining inventory determined by pip::compute_prediction_statistics}
 
 \item{s}{a vector of inventory shortage as determined by pip::compute_prediction_statistics}
 

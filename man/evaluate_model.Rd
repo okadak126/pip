@@ -2,7 +2,7 @@
 % Please edit documentation in R/func.R
 \name{evaluate_model}
 \alias{evaluate_model}
-\title{Run a fit on a given dataset}
+\title{Evaluate the model on a held out validation set within the original training set}
 \usage{
 evaluate_model(
   data,

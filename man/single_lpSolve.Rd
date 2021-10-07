@@ -10,7 +10,8 @@ single_lpSolve(
   lag_bounds,
   num_vars,
   start = 10,
-  c = 30,
+  c = 10,
+  shortage_factor = 15,
   buffer = 10,
   ind = NULL
 )
@@ -24,9 +25,11 @@ single_lpSolve(
 
 \item{num_vars}{the number of features/covariates in the dataset.}
 
-\item{start}{the start date}
+\item{start}{the 0th index of the date when we begin evaluating the model}
 
 \item{c}{the value for c_0}
+
+\item{shortage_factor}{the value by which we multiply shortage (vs. waste)}
 
 \item{buffer}{a value to be added to account for training in the initial stages, default 10}
 

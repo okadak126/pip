@@ -69,17 +69,21 @@ compute_loss <- function(preds, y, w, r1, r2, s, penalty_factor,
     stop("Waste, inventory, and/or shortage vectors of different lengths.")
   }
 
-  waste_loss <- apply(w, 2, function(x) sum(x^2)) # average waste
-  short_loss <- apply(s, 2, function(x) sum(x^2)) # average shortage
+  waste_loss <- apply(w, 2, function(x) sum(x^2)) # average squared waste
+  short_loss <- apply(s, 2, function(x) sum(x^2)) # average squared shortage
 
+  ## true next-three-day usage for eachd day i
   t_true <- (dplyr::lead(y, n = 1L, default = 0) +
     dplyr::lead(y, n = 2L, default = 0) +
     dplyr::lead(y, n = 3L, default = 0))[-c((length(y) - 2):length(y))]
 
-  # Add bias
+  ## Add bias
   pos_rss <- apply(preds, 2, function(x) sum((pos(x - t_true - lo_inv_limit)^2) ))
   neg_rss <- apply(preds, 2, function(x) sum((pos(t_true + lo_inv_limit - x)^2) ))
 
+  ## Loss = average(RSS_pos_bias + RSS_neg_bias + squared_waste + pi^2 * squared_shortage)
+  ## This takes into account how much we prefer waste over shortage situations,
+  ## but biased RSS makes the function more sensitive (waste and shortage are relatively rare)
   loss <- (pos_rss + neg_rss + waste_loss + penalty_factor^2 * short_loss) / nrow(w)
   loss
 }
