@@ -9,8 +9,7 @@ build_model(
   c0 = 15,
   history_window = 200,
   penalty_factor = 5,
-  lo_inv_limit = 30,
-  hi_inv_limit = 60,
+  rss_bias = 30,
   start = 10,
   l1_bounds = seq(from = 200, to = 0, by = -2),
   lag_bounds = -1,
@@ -25,13 +24,11 @@ build_model(
 
 \item{c0}{the lower bound on remaining "fresh" inventory (used in optimization)}
 
-\item{history_window}{Number of days to look back}
+\item{history_window}{number of days to look back}
 
 \item{penalty_factor}{penalty for shortage specified by doctors}
 
-\item{lo_inv_limit}{inventory count below which we penalize result (potential short)}
-
-\item{hi_inv_limit}{inventory count above which we penalize result (potential waste)}
+\item{rss_bias}{qmount by which we should bias the RSS calculation upward for the loss}
 
 \item{start}{the first day in the dataset that the model's predictions are evaluated}
 
@@ -49,19 +46,12 @@ regex, default is "day|date" i.e. day or date}
 
 \item{show_progress}{a TRUE/FALSE flag for showing progress,
 default TRUE}
+
+\item{plot_losses}{a TRUE/FALSE flag for whether we plot loss values by hyperparameter
+(helpful for model diagnostics). Default true.}
 }
 \description{
 The dataset should have one more column than the predictors and
 response. This additional column, which is typically a date or day
 number, has to be named "date" or "day"
-}
-\examples{
-build_model(c0 = 30,
-           history_window = 200,
-           penalty_factor = 15,
-           start = 10,
-           response_column = "plt.used",
-           data = day3_data,
-           show_progress = FALSE)
-
 }

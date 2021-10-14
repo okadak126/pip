@@ -37,7 +37,7 @@ Suggests:
     testthat,
     shiny
 RoxygenNote: 7.1.1.9001
-Imports: lpSolveAPI
+Imports: dplyr, lpSolveAPI, utils
 Packaged: 2021-03-19 22:40:54 UTC; naras
 Author: Leying Guan [aut],
   Robert J. Tibshirani [aut],

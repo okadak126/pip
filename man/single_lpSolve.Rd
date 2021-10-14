@@ -13,7 +13,8 @@ single_lpSolve(
   c = 10,
   shortage_factor = 15,
   buffer = 10,
-  ind = NULL
+  ind = NULL,
+  reset_basis = FALSE
 )
 }
 \arguments{
@@ -29,11 +30,13 @@ single_lpSolve(
 
 \item{c}{the value for c_0}
 
-\item{shortage_factor}{the value by which we multiply shortage (vs. waste)}
+\item{shortage_factor}{the amount by which we multiply shortage over waste (ratio)}
 
 \item{buffer}{a value to be added to account for training in the initial stages, default 10}
 
 \item{ind}{the indices for cross validation used only if non-null. (Should be sorted!!)}
+
+\item{reset_basis}{TRUE or FALSE for whether we reset the LP basis before each solve (for non-uniqueness)}
 }
 \description{
 Solve an LP problem

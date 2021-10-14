@@ -4,17 +4,7 @@
 \alias{compute_loss}
 \title{Compute the Cross-Validation Loss for each hyperparameter}
 \usage{
-compute_loss(
-  preds,
-  y,
-  w,
-  r1,
-  r2,
-  s,
-  penalty_factor,
-  lo_inv_limit,
-  hi_inv_limit
-)
+compute_loss(preds, y, w, r1, r2, s, penalty_factor, rss_bias)
 }
 \arguments{
 \item{preds}{a vector of 3 day usage predictions}
@@ -31,10 +21,12 @@ compute_loss(
 
 \item{penalty_factor}{factor to additionally penalize shortage terms over waste}
 
-\item{lo_inv_limit}{threshold for insufficient inventory below which to penalize (shortage risk)}
-
-\item{hi_inv_limit}{threshold for surfeit inventory above which to penalize (wastage risk)}
+\item{rss_bias}{amount by which we bias the RSS term upward to prevent shortage}
+}
+\value{
+a vector of losses computed for each hyperparameter
 }
 \description{
-Compute the Cross-Validation Loss for each hyperparameter
+Each column  of preds, w, r1, r2, s, represent a single hyperparameter value.
+These inputs should be generated from the cross_validate function
 }

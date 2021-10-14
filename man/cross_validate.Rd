@@ -47,6 +47,9 @@ folds (exp for exanding) or on all other folds besides the left-out fold (loo fo
 
 \item{show_progress}{a TRUE/FALSE flag for showing progress, default FALSE}
 }
+\value{
+a list containing matrices for waste, r1, r2, shortage, and predictions from cross-validation
+}
 \description{
 Run cross-validation method
 }

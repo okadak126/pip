@@ -10,8 +10,7 @@ evaluate_model(
   train_window = 200,
   test_window = 7,
   penalty_factor = 5,
-  lo_inv_limit = 30,
-  hi_inv_limit = 60,
+  rss_bias = 30,
   start = 10,
   l1_bounds = seq(from = 200, to = 0, by = -2),
   lag_bounds = c(NA),
@@ -24,11 +23,13 @@ evaluate_model(
 
 \item{c0}{the c0 value}
 
-\item{train_window}{Number of days to look back}
+\item{train_window}{number of days to look back}
 
-\item{test_window}{Number of days on which to evaluate model}
+\item{test_window}{number of days on which to evaluate model}
 
 \item{penalty_factor}{penalty for shortage specified by doctors}
+
+\item{rss_bias}{amount by which we bias the RSS term of the loss upward}
 
 \item{start}{the day you start evaluating the model (for CV)}
 
@@ -48,7 +49,4 @@ regex, default is "day|date" i.e. day or date}
 The dataset should have one more column than the predictors and
 response. This additional column, which is typically a date or day
 number, has to be named "date" or "day"
-}
-\examples{
-
 }

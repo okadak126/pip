@@ -52,6 +52,10 @@ compute_prediction_statistics <- function(y, #actual usage arranged according to
 }
 
 #' Compute the Cross-Validation Loss for each hyperparameter
+#'
+#' Each column  of preds, w, r1, r2, s, represent a single hyperparameter value.
+#' These inputs should be generated from the cross_validate function
+#'
 #' @param preds a vector of 3 day usage predictions
 #' @param y a vector of actual daily usage
 #' @param w a vector of waste determined by pip::compute_prediction_statistics
@@ -59,11 +63,11 @@ compute_prediction_statistics <- function(y, #actual usage arranged according to
 #' @param r2 a vector of remaining inventory determined by pip::compute_prediction_statistics
 #' @param s a vector of inventory shortage as determined by pip::compute_prediction_statistics
 #' @param penalty_factor factor to additionally penalize shortage terms over waste
-#' @param lo_inv_limit threshold for insufficient inventory below which to penalize (shortage risk)
-#' @param hi_inv_limit threshold for surfeit inventory above which to penalize (wastage risk)
+#' @param rss_bias amount by which we bias the RSS term upward to prevent shortage
+#' @return a vector of losses computed for each hyperparameter
+#' @importFrom dplyr lead
 #' @export
-compute_loss <- function(preds, y, w, r1, r2, s, penalty_factor,
-                         lo_inv_limit, hi_inv_limit) {
+compute_loss <- function(preds, y, w, r1, r2, s, penalty_factor, rss_bias) {
 
   if (nrow(w) != nrow(s) || nrow(w) != nrow(r1) || nrow(w) != nrow(r2)) {
     stop("Waste, inventory, and/or shortage vectors of different lengths.")
@@ -78,13 +82,12 @@ compute_loss <- function(preds, y, w, r1, r2, s, penalty_factor,
     dplyr::lead(y, n = 3L, default = 0))[-c((length(y) - 2):length(y))]
 
   ## Add bias
-  pos_rss <- apply(preds, 2, function(x) sum((pos(x - t_true - lo_inv_limit)^2) ))
-  neg_rss <- apply(preds, 2, function(x) sum((pos(t_true + lo_inv_limit - x)^2) ))
+  rss <- apply(preds, 2, function(x) sum((x - t_true - rss_bias)^2 ))
 
   ## Loss = average(RSS_pos_bias + RSS_neg_bias + squared_waste + pi^2 * squared_shortage)
   ## This takes into account how much we prefer waste over shortage situations,
   ## but biased RSS makes the function more sensitive (waste and shortage are relatively rare)
-  loss <- (pos_rss + neg_rss + waste_loss + penalty_factor^2 * short_loss) / nrow(w)
+  loss <- (rss + waste_loss + penalty_factor^2 * short_loss) / nrow(w)
   loss
 }
 
@@ -104,6 +107,8 @@ compute_loss <- function(preds, y, w, r1, r2, s, penalty_factor,
 #' @param cv_type the variety of cross_validation used. The model can either train on all previous
 #'     folds (exp for exanding) or on all other folds besides the left-out fold (loo for leave-one-out, default)
 #' @param show_progress a TRUE/FALSE flag for showing progress, default FALSE
+#' @return a list containing matrices for waste, r1, r2, shortage, and predictions from cross-validation
+#' @importFrom utils txtProgressBar setTxtProgressBar
 cross_validate <- function(data, pred_var_indices, resp_var_index, l1_bounds, lag_bounds,
                            c0, start, penalty_factor, seed_prop, fold_size, cv_type = "loo", show_progress = FALSE) {
 
@@ -128,7 +133,6 @@ cross_validate <- function(data, pred_var_indices, resp_var_index, l1_bounds, la
   pb <- if (show_progress) utils::txtProgressBar(min = 0, max = nfolds, style = 3) else NULL
 
   for (k in seq_len(nfolds)) {
-
 
     # Solve for the coefficients and predict
     indices <- if (cv_type == "exp") { which(foldid < k + 1) } else { which(foldid != k + 1) }
@@ -184,12 +188,12 @@ cross_validate <- function(data, pred_var_indices, resp_var_index, l1_bounds, la
 #' The dataset should have one more column than the predictors and
 #' response. This additional column, which is typically a date or day
 #' number, has to be named "date" or "day"
+#'
 #' @param data the dataset
 #' @param c0 the lower bound on remaining "fresh" inventory (used in optimization)
-#' @param history_window Number of days to look back
+#' @param history_window number of days to look back
 #' @param penalty_factor penalty for shortage specified by doctors
-#' @param lo_inv_limit inventory count below which we penalize result (potential short)
-#' @param hi_inv_limit inventory count above which we penalize result (potential waste)
+#' @param rss_bias qmount by which we should bias the RSS calculation upward for the loss
 #' @param start the first day in the dataset that the model's predictions are evaluated
 #' @param l1_bounds vector containing the possible values of the l1 bound on coefs aside from
 #'     days of the week and seven day moving average
@@ -201,24 +205,16 @@ cross_validate <- function(data, pred_var_indices, resp_var_index, l1_bounds, la
 #'     "plt_used"
 #' @param show_progress a TRUE/FALSE flag for showing progress,
 #'     default TRUE
+#' @param plot_losses a TRUE/FALSE flag for whether we plot loss values by hyperparameter
+#'     (helpful for model diagnostics). Default true.
 #' @importFrom utils setTxtProgressBar txtProgressBar
-#' @examples
-#' build_model(c0 = 30,
-#'            history_window = 200,
-#'            penalty_factor = 15,
-#'            start = 10,
-#'            response_column = "plt.used",
-#'            data = day3_data,
-#'            show_progress = FALSE)
-#'
 #' @export
 #'
 build_model <- function(data, ## The data set
                         c0 = 15, ## the minimum number of units to keep on shelf (c)
                         history_window = 200, ## Number of days to look back
                         penalty_factor = 5, ## the penalty factor for shortage, specified by doctor
-                        lo_inv_limit = 30,  ## inventory count below which we penalize result
-                        hi_inv_limit = 60,  ## inventory count above which we penalize result
+                        rss_bias = 30,  ## inventory count below which we penalize result
                         start = 10,   ## the day you start evaluating
                         l1_bounds = seq(from = 200, to = 0, by = -2), ## allowed values of the l1 bound
                         lag_bounds = -1, ## vector of bounds on coefficient for seven day moving average of daily use (NA = no bound)
@@ -261,7 +257,8 @@ build_model <- function(data, ## The data set
                           cv_result$r1,
                           cv_result$r2,
                           cv_result$s,
-                          penalty_factor, lo_inv_limit, hi_inv_limit)
+                          penalty_factor,
+                          rss_bias)
 
 
   index <- which.min(cv_loss)
@@ -323,9 +320,10 @@ predict_three_day_sum <- function(model, ## the trained model
 #' number, has to be named "date" or "day"
 #' @param data the dataset
 #' @param c0 the c0 value
-#' @param train_window Number of days to look back
-#' @param test_window Number of days on which to evaluate model
+#' @param train_window number of days to look back
+#' @param test_window number of days on which to evaluate model
 #' @param penalty_factor penalty for shortage specified by doctors
+#' @param rss_bias amount by which we bias the RSS term of the loss upward
 #' @param start the day you start evaluating the model (for CV)
 #' @param l1_bounds vector containing the possible values of the l1 bound on coefs aside from
 #'     days of the week and seven day moving average
@@ -335,17 +333,14 @@ predict_three_day_sum <- function(model, ## the trained model
 #'     regex, default is "day|date" i.e. day or date
 #' @param response_column the name of the response column, default is
 #'     "plt_used"
-#' @examples
-#'
 #' @export
 #'
 evaluate_model <- function(data, ## The data set
                         c0 = 15, ## the minimum number of units to keep on shelf (c)
-                        train_window = 200, ## Number of days to look back
-                        test_window = 7, ## Number of days on which to evaluate model
+                        train_window = 200, ## number of days to look back
+                        test_window = 7, ## number of days on which to evaluate model
                         penalty_factor = 5, ## the penalty factor for shortage, specified by doctor
-                        lo_inv_limit = 30,  ## inventory count below which we penalize result
-                        hi_inv_limit = 60,  ## inventory count above which we penalize result
+                        rss_bias = 30,  ## amount by which we bias the RSS term of the loss upward
                         start = 10, ## the day you start evaluating
                         l1_bounds = seq(from = 200, to = 0, by = -2), ## allowed values of the l1 bound
                         lag_bounds = c(NA),
@@ -380,6 +375,7 @@ evaluate_model <- function(data, ## The data set
                       c0 = c0,
                       history_window = train_window,
                       penalty_factor = penalty_factor,
+                      rss_bias = rss_bias,
                       start = start,
                       l1_bounds = l1_bounds,
                       lag_bounds = lag_bounds)
@@ -403,8 +399,7 @@ evaluate_model <- function(data, ## The data set
                           matrix(model_result$r[seq.int(n - test_window + 1L, n - 3L), 2L], ncol = 1),
                           matrix(model_result$s[seq.int(n - test_window + 1L, n - 3L)], ncol = 1),
                           penalty_factor,
-                          lo_inv_limit,
-                          hi_inv_limit)
+                          rss_bias)
 
   nhypers <- length(l1_bounds) * length(lag_bounds)
   eval_losses <- rep(0, nhypers)
@@ -437,8 +432,7 @@ evaluate_model <- function(data, ## The data set
                                 matrix(rr$r[seq.int(n - test_window + 1L, n - 3L),2L], ncol = 1L),
                                 matrix(rr$s[seq.int(n - test_window + 1L, n - 3L)], ncol = 1L),
                                 penalty_factor,
-                                lo_inv_limit,
-                                hi_inv_limit)
+                                rss_bias)
 
       eval_losses[l] <- eval_loss
   }
