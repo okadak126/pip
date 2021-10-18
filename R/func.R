@@ -16,7 +16,7 @@
 #'     the model begins at day 11 but the decision to order collection
 #'     starts on day 13.
 #' @param c the ideal minimum number of fresh units remaining at the end
-#'     of the day. this is also the minimum number that should be collected
+#'     of the day. this is also the minimum number that should be collected (let's remove)
 #' @return a list with four components, \code{x} is the number of
 #'     units to collect, \code{r} is a matrix of two columns
 #'     indicating remaining units usable on day i+1 and day i+2,
@@ -46,7 +46,7 @@ compute_prediction_statistics <- function(y, #actual usage arranged according to
       s[i] <- pos(y[i] - r[i - 1, 1] - r[i - 1, 2] - x[i])
       r[i, 2] <- pos(x[i] - pos(y[i] - r[i - 1, 1] - r[i - 1, 2]))
     }
-    x[i + 3] <- max(floor(pos(t_pred[i] - x[i + 1] - x[i + 2] - r[i, 1] - r[i, 2] + 1)), c)
+    x[i + 3] <- floor(pos(t_pred[i] - x[i + 1] - x[i + 2] - r[i, 1] - r[i, 2] + 1))
   }
   return(list(x = x, r = r, w = w, s = s))
 }
@@ -266,7 +266,10 @@ build_model <- function(data, ## The data set
   lag_bound_min <- lag_bounds[(index - 1) %% length(lag_bounds) + 1]
 
   if (plot_losses) {
-    plot(x = l1_bounds, y = cv_loss[seq(from = 1, to = length(cv_loss), by = 2)])
+    plot(x = l1_bounds,
+         y = cv_loss[seq(from = 1, to = length(cv_loss), by = 2)],
+         xlab = "L1 Bounds",
+         ylab = "CV Loss")
     print(l1_bound_min)
     print(lag_bound_min)
   }

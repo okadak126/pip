@@ -297,7 +297,7 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars,
 
     for (j in seq_along(lag_bounds)) {
 
-      # Apply a constraint to the seven day moving average (lag) parameter if applicable
+      # Apply a common constraint to the first and second lags
       if (lag_bounds[j] > 0) {
         constraint_coefficients <- rep(0,N_var)
         constraint_coefficients[bb_idx0 + 8] <- 1
@@ -320,7 +320,7 @@ single_lpSolve <- function(d, l1_bounds, lag_bounds, num_vars,
         }
       }
 
-      if (doing_cv && (status == 5 || status == 7 || status == 3))  {
+      if (doing_cv && (status > 0))  {
         # If we are running cross validation, we can accept some failures
         warning(sprintf("lpSolveStatus is %d", status))
         coefficients_matrix[ , (i - 1) * length(lag_bounds) + j] <- 0.0 # set all coefs to 0
@@ -608,7 +608,7 @@ single_lpSolve_wasteOnly <- function(d, l1_bounds, lag_bounds, num_vars,
 
     for (j in seq_along(lag_bounds)) {
 
-      # Apply a constraint to the seven day moving average (lag) parameter if applicable
+      # Apply a common constraint to the first lags
       if (lag_bounds[j] > 0) {
         constraint_coefficients <- rep(0,N_var)
         constraint_coefficients[bb_idx0 + 8] <- 1
@@ -631,7 +631,7 @@ single_lpSolve_wasteOnly <- function(d, l1_bounds, lag_bounds, num_vars,
         }
       }
 
-      if (doing_cv && (status == 5 || status == 7 || status == 3))  {
+      if (doing_cv && (status > 0))  {
         # If we are running cross validation, we can accept some failures
         warning(sprintf("lpSolveStatus is %d", status))
         coefficients_matrix[ , (i - 1) * length(lag_bounds) + j] <- 0.0 # set all coefs to 0
