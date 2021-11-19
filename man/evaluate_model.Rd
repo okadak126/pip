@@ -45,8 +45,22 @@ regex, default is "day|date" i.e. day or date}
 \item{response_column}{the name of the response column, default is
 "plt_used"}
 }
+\value{
+the lowest CV loss obtained on the validation set
+}
 \description{
 The dataset should have one more column than the predictors and
 response. This additional column, which is typically a date or day
 number, has to be named "date" or "day"
+}
+\examples{
+data_file <- system.file("extdata", "sample_data.Rdata", package = "pip")
+load(data_file)
+
+# evaluate CV performance of model on last [test_window] days vs. best hyperparameter choice
+# after training on the first [train_window] days of input data
+min_loss <- evaluate_model(lpdata, c0 = 10, train_window = 86, test_window = 14, penalty_factor = 15,
+                        rss_bias = 10, l1_bounds = l1_bounds, lag_bounds = lag_bounds)
+
+
 }

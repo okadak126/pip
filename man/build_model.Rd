@@ -28,7 +28,7 @@ build_model(
 
 \item{penalty_factor}{penalty for shortage specified by doctors}
 
-\item{rss_bias}{qmount by which we should bias the RSS calculation upward for the loss}
+\item{rss_bias}{amount by which we should bias the RSS calculation upward for the loss}
 
 \item{start}{the first day in the dataset that the model's predictions are evaluated}
 
@@ -54,4 +54,18 @@ default TRUE}
 The dataset should have one more column than the predictors and
 response. This additional column, which is typically a date or day
 number, has to be named "date" or "day"
+}
+\examples{
+
+data_file <- system.file("extdata", "sample_data.Rdata", package = "pip")
+load(data_file)
+
+# runs single_lpSolve to produce the model with the lowest CV loss using
+# hyperparameters l1_bounds and lag_bounds (LASSO penalty)
+model <- build_model(lpdata, c0 = 15, history_window = 100, penalty_factor = 5,
+                     rss_bias = 30, l1_bounds = l1_bounds, lag_bounds = lag_bounds)
+
+# generate single total platelet usage prediction for the next 3 days.
+pred <- predict_three_day_sum(model, newdata)
+
 }

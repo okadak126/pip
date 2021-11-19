@@ -32,7 +32,7 @@ the model begins at day 11 but the decision to order collection
 starts on day 13.}
 
 \item{c}{the ideal minimum number of fresh units remaining at the end
-of the day. this is also the minimum number that should be collected}
+of the day. this is also the minimum number that should be collected (let's remove)}
 }
 \value{
 a list with four components, \code{x} is the number of

@@ -2,9 +2,7 @@
 
 export(build_model)
 export(compute_loss)
-export(compute_prediction_statistics)
 export(evaluate_model)
-export(ma_week)
 export(pos)
 export(predict_three_day_sum)
 export(single_lpSolve)

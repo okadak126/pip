@@ -18,3 +18,16 @@ the predicted three day total of how many units to collect
 \description{
 Predict the next three day sum and units to order if available
 }
+\examples{
+data_file <- system.file("extdata", "sample_data.Rdata", package = "pip")
+load(data_file)
+
+# runs single_lpSolve to produce the model with the lowest CV loss using
+# hyperparameters l1_bounds and lag_bounds (LASSO penalty)
+model <- build_model(lpdata, c0 = 15, history_window = 100, penalty_factor = 5,
+                     rss_bias = 30, l1_bounds = l1_bounds, lag_bounds = lag_bounds)
+
+# generate single total platelet usage prediction for the next 3 days.
+pred <- predict_three_day_sum(model, newdata)
+
+}

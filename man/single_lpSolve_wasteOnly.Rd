@@ -2,7 +2,7 @@
 % Please edit documentation in R/single_LP2_commented.R
 \name{single_lpSolve_wasteOnly}
 \alias{single_lpSolve_wasteOnly}
-\title{Solve an LP problem}
+\title{Solve the LP problem for platelet usage prediction (ignoring shortage in the optimization)}
 \usage{
 single_lpSolve_wasteOnly(
   d,
@@ -39,5 +39,5 @@ single_lpSolve_wasteOnly(
 \item{reset_basis}{TRUE or FALSE for whether we reset the LP basis before each solve (for non-uniqueness)}
 }
 \description{
-Solve an LP problem
+Solve the LP problem for platelet usage prediction (ignoring shortage in the optimization)
 }

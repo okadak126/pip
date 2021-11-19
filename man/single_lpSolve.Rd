@@ -2,7 +2,7 @@
 % Please edit documentation in R/single_LP2_commented.R
 \name{single_lpSolve}
 \alias{single_lpSolve}
-\title{Solve an LP problem}
+\title{Solve the LP problem for platelet usage prediction}
 \usage{
 single_lpSolve(
   d,
@@ -18,7 +18,8 @@ single_lpSolve(
 )
 }
 \arguments{
-\item{d}{the data frame}
+\item{d}{the data frame. We assume that the first column contains a date and the response is the
+last column.}
 
 \item{l1_bounds}{the upper bound on the l1 norm of coefficient vector (aside from lag and days of week)}
 
@@ -39,5 +40,17 @@ single_lpSolve(
 \item{reset_basis}{TRUE or FALSE for whether we reset the LP basis before each solve (for non-uniqueness)}
 }
 \description{
-Solve an LP problem
+Solve the LP problem for platelet usage prediction
+}
+\examples{
+data_file <- system.file("extdata", "sample_data.Rdata", package = "pip")
+load(data_file)
+
+#' # Note that SBCpip::create_dataset() produces data of the form lpdata from source files
+sol <- single_lpSolve(lpdata, l1_bounds, lag_bounds, num_vars)
+
+# Add the coefficient names to the resulting coefficients. Each
+# column represents a pairing of hyperparameter values from l1_bounds
+# and lag_bounds. The effects of the L1 penalty should be apparent.
+rownames(sol) <- c("Intercept", colnames(lpdata[2:(ncol(lpdata) - 1)]))
 }

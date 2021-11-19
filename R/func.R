@@ -21,7 +21,6 @@
 #'     units to collect, \code{r} is a matrix of two columns
 #'     indicating remaining units usable on day i+1 and day i+2,
 #'     \code{w} is waste, and \code{s} is shortage.
-#' @export
 compute_prediction_statistics <- function(y, #actual usage arranged according to date
                                           t_pred,
                                           initial_expiry_data = c(0, 0),
@@ -193,7 +192,7 @@ cross_validate <- function(data, pred_var_indices, resp_var_index, l1_bounds, la
 #' @param c0 the lower bound on remaining "fresh" inventory (used in optimization)
 #' @param history_window number of days to look back
 #' @param penalty_factor penalty for shortage specified by doctors
-#' @param rss_bias qmount by which we should bias the RSS calculation upward for the loss
+#' @param rss_bias amount by which we should bias the RSS calculation upward for the loss
 #' @param start the first day in the dataset that the model's predictions are evaluated
 #' @param l1_bounds vector containing the possible values of the l1 bound on coefs aside from
 #'     days of the week and seven day moving average
@@ -209,12 +208,24 @@ cross_validate <- function(data, pred_var_indices, resp_var_index, l1_bounds, la
 #'     (helpful for model diagnostics). Default true.
 #' @importFrom utils setTxtProgressBar txtProgressBar
 #' @export
+#' @examples
+#'
+#' data_file <- system.file("extdata", "sample_data.Rdata", package = "pip")
+#' load(data_file)
+#'
+#' # runs single_lpSolve to produce the model with the lowest CV loss using
+#' # hyperparameters l1_bounds and lag_bounds (LASSO penalty)
+#' model <- build_model(lpdata, c0 = 15, history_window = 100, penalty_factor = 5,
+#'                      rss_bias = 30, l1_bounds = l1_bounds, lag_bounds = lag_bounds)
+#'
+#' # generate single total platelet usage prediction for the next 3 days.
+#' pred <- predict_three_day_sum(model, newdata)
 #'
 build_model <- function(data, ## The data set
                         c0 = 15, ## the minimum number of units to keep on shelf (c)
                         history_window = 200, ## Number of days to look back
                         penalty_factor = 5, ## the penalty factor for shortage, specified by doctor
-                        rss_bias = 30,  ## inventory count below which we penalize result
+                        rss_bias = 30,  ## amount by which we should bias the RSS calculation upward for the loss
                         start = 10,   ## the day you start evaluating
                         l1_bounds = seq(from = 200, to = 0, by = -2), ## allowed values of the l1 bound
                         lag_bounds = -1, ## vector of bounds on coefficient for seven day moving average of daily use (NA = no bound)
@@ -305,6 +316,18 @@ build_model <- function(data, ## The data set
 #' @return the predicted three day total of how many units to collect
 #' @export
 #'
+#' @examples
+#' data_file <- system.file("extdata", "sample_data.Rdata", package = "pip")
+#' load(data_file)
+#'
+#' # runs single_lpSolve to produce the model with the lowest CV loss using
+#' # hyperparameters l1_bounds and lag_bounds (LASSO penalty)
+#' model <- build_model(lpdata, c0 = 15, history_window = 100, penalty_factor = 5,
+#'                      rss_bias = 30, l1_bounds = l1_bounds, lag_bounds = lag_bounds)
+#'
+#' # generate single total platelet usage prediction for the next 3 days.
+#' pred <- predict_three_day_sum(model, newdata)
+#'
 predict_three_day_sum <- function(model, ## the trained model
                                   new_data) { ## the new dataset with specified number of features
   predictor_names <- names(model$coefs)[-1]
@@ -336,7 +359,18 @@ predict_three_day_sum <- function(model, ## the trained model
 #'     regex, default is "day|date" i.e. day or date
 #' @param response_column the name of the response column, default is
 #'     "plt_used"
+#' @return the lowest CV loss obtained on the validation set
 #' @export
+#'
+#' @examples
+#' data_file <- system.file("extdata", "sample_data.Rdata", package = "pip")
+#' load(data_file)
+#'
+#' # evaluate CV performance of model on last [test_window] days vs. best hyperparameter choice
+#' # after training on the first [train_window] days of input data
+#' min_loss <- evaluate_model(lpdata, c0 = 10, train_window = 86, test_window = 14, penalty_factor = 15,
+#'                         rss_bias = 10, l1_bounds = l1_bounds, lag_bounds = lag_bounds)
+#'
 #'
 evaluate_model <- function(data, ## The data set
                         c0 = 15, ## the minimum number of units to keep on shelf (c)
@@ -449,4 +483,5 @@ evaluate_model <- function(data, ## The data set
   print(sprintf("CV Found best L was %d, loss was %f", model$l1_bound, min_cv_loss))
   print(sprintf("Test Set found best L was %d, loss was %f", l1_bound_best_eval, min_eval_loss))
 
+  min_cv_loss
 }
